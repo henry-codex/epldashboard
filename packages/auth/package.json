@@ -1,0 +1,27 @@
+{
+  "name": "@epl-fellows-platform/auth",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.5.5",
+    "@epl-fellows-platform/db": "workspace:*",
+    "@epl-fellows-platform/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@epl-fellows-platform/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

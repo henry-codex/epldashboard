@@ -1,0 +1,33 @@
+{
+  "name": "epl-fellows-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "check-types": "turbo check-types",
+    "dev:native": "turbo -F native dev",
+    "dev:web": "turbo -F web dev",
+    "dev:server": "turbo -F server dev",
+    "db:push": "turbo -F @epl-fellows-platform/db db:push",
+    "db:studio": "turbo -F @epl-fellows-platform/db db:studio",
+    "db:generate": "turbo -F @epl-fellows-platform/db db:generate",
+    "db:migrate": "turbo -F @epl-fellows-platform/db db:migrate"
+  },
+  "dependencies": {
+    "@epl-fellows-platform/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@epl-fellows-platform/config": "workspace:*",
+    "@types/node": "^22.13.14",
+    "turbo": "^2.6.3",
+    "typescript": "catalog:"
+  },
+  "packageManager": "pnpm@10.28.2"
+}
