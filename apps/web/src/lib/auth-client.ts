@@ -1,6 +1,5 @@
-import { createAuthClient } from "@neondatabase/auth/next/client";
+import { createAuthClient } from "@neondatabase/auth/next";
 
-// Auth API is served by this Next.js app at /api/auth (proxies to Neon Auth)
-export const authClient = createAuthClient({
-  baseUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3001",
-});
+// Neon Auth manages sessions via httpOnly cookies set by the server route.
+// No baseUrl config needed — routing is handled server-side by createNeonAuth.
+export const authClient = createAuthClient();
