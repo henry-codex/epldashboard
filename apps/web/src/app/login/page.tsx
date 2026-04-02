@@ -1,16 +1,12 @@
 "use client";
 
-import { useState } from "react";
-
+import { useRouter } from "next/navigation";
 import SignInForm from "@/components/sign-in-form";
-import SignUpForm from "@/components/sign-up-form";
 
 export default function LoginPage() {
-  const [showSignIn, setShowSignIn] = useState(false);
+  const router = useRouter();
 
-  return showSignIn ? (
-    <SignInForm onSwitchToSignUp={() => setShowSignIn(false)} />
-  ) : (
-    <SignUpForm onSwitchToSignIn={() => setShowSignIn(true)} />
+  return (
+    <SignInForm onSwitchToSignUp={() => router.push("/signup")} />
   );
 }

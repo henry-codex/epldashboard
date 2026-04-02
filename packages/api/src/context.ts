@@ -1,6 +1,8 @@
 export async function createContext() {
   return {
-    session: null,
+    // Cast to any to allow the protectedProcedure to safely narrow the type
+    // while satisfying initial null state requirements.
+    session: null as any,
   };
 }
 
