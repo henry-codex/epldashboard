@@ -1,9 +1,22 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "NEON_AUTH_BASE_URL",
+    "NEON_AUTH_COOKIE_SECRET",
+    "NEXT_PUBLIC_APP_URL",
+    "NEXT_PUBLIC_SERVER_URL",
+    "NODE_ENV"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": [
+        "NEON_AUTH_BASE_URL",
+        "NEON_AUTH_COOKIE_SECRET",
+        "NEXT_PUBLIC_APP_URL",
+        "NEXT_PUBLIC_SERVER_URL"
+      ],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**", ".next/**"]
     },

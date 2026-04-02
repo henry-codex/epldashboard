@@ -10,8 +10,13 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "EPL Africa — Fellows Dashboard",
-  description: "Emerging Public Leaders Africa — Fellows Activity & Profile Monitoring Platform",
+  title: "EPL Global — Fellows Dashboard",
+  description: "Emerging Public Leaders Global — Fellows Activity & Profile Monitoring Platform",
+  icons: {
+    icon: "/EPL_logo_square-block.webp",
+    shortcut: "/EPL_logo_square-block.webp",
+    apple: "/EPL_logo_square-block.webp",
+  },
 };
 
 export default function RootLayout({
