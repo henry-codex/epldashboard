@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { EPLSidebar } from "./sidebar";
 import { DashHeader } from "./dash-header";
 import { useTheme } from "@/hooks/use-theme";
@@ -22,6 +22,30 @@ export function AppShell({
 }: Props) {
   const { theme, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem("epl-sidebar-collapsed");
+      if (stored === "1") setCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+    const id = requestAnimationFrame(() => setReady(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  function handleCollapse() {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        sessionStorage.setItem("epl-sidebar-collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   return (
     <div
@@ -39,9 +63,10 @@ export function AppShell({
         {/* Sidebar */}
         <EPLSidebar
           collapsed={collapsed}
-          onCollapse={() => setCollapsed((c) => !c)}
+          onCollapse={handleCollapse}
           activePage={activePage}
           user={user}
+          ready={ready}
         />
 
         {/* Main */}

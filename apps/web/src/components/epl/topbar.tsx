@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 
-const navItems = ["Dashboard", "Fellows", "Check-ins", "Map", "Reports"];
+const navItems = ["Dashboard", "Network", "Map", "Data"];
 
 export function EPLTopbar() {
   const [active, setActive] = useState("Dashboard");

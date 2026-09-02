@@ -130,7 +130,7 @@ export const COUNTRIES: CountryData[] = [
     ],
     recentUpdates: [
       { text: "3 institutions still pending check-in — overdue", time: "1d ago", type: "alert" },
-      { text: "Women on the Rise cohort placement complete", time: "3d ago", type: "checkin" },
+      { text: "Women on the Rise cohort retention complete", time: "3d ago", type: "checkin" },
     ],
     events: [
       { title: "Governance Fellows Workshop", date: "Apr 18, 2026" },
@@ -155,7 +155,7 @@ export const COUNTRIES: CountryData[] = [
       { name: "Women on the Rise", status: "active", fellows: 15, startDate: "Jan 2023" },
     ],
     recentUpdates: [
-      { text: "PSF cohort 6 completed placement", time: "2d ago", type: "checkin" },
+      { text: "PSF cohort 6 completed retention", time: "2d ago", type: "checkin" },
       { text: "Women on the Rise mid-term review scheduled", time: "5d ago", type: "event" },
     ],
     events: [
@@ -199,16 +199,29 @@ export const COUNTRIES_MAP = Object.fromEntries(COUNTRIES.map((c) => [c.id, c]))
 
 export const TOTAL_FELLOWS = COUNTRIES.reduce((s, c) => s + c.fellows, 0);
 export const TOTAL_ALUMNI  = COUNTRIES.reduce((s, c) => s + c.alumni, 0);
+/** Phase 1 core metric standard (Emily): Active Fellows / Alumni Leaders / Total Network */
+export const ACTIVE_FELLOWS = TOTAL_FELLOWS;
+export const ALUMNI_LEADERS = TOTAL_ALUMNI;
+export const TOTAL_NETWORK = ACTIVE_FELLOWS + ALUMNI_LEADERS;
 export const TOTAL_PLACED  = COUNTRIES.reduce((s, c) => s + c.placed, 0);
 export const TOTAL_INST    = COUNTRIES.reduce((s, c) => s + c.institutions, 0);
 export const AVG_CHECKIN   = Math.round(COUNTRIES.reduce((s, c) => s + c.checkInRate, 0) / COUNTRIES.length);
+
+/** Per-country derived network totals for maps & boards */
+export function countryNetwork(c: Pick<CountryData, "fellows" | "alumni">) {
+  return {
+    activeFellows: c.fellows,
+    alumniLeaders: c.alumni,
+    totalNetwork: c.fellows + c.alumni,
+  };
+}
 
 export const RECENT_ACTIVITY = [
   { id: 1, type: "checkin",  text: "Ghana submitted Q1 2026 check-in report", time: "2h ago",  color: "#3B8BEB" },
   { id: 2, type: "fellow",   text: "12 new fellows onboarded in Kenya (Cohort 7)", time: "5h ago",  color: "#9B59B6" },
   { id: 3, type: "alert",    text: "Liberia check-in overdue — 3 institutions pending", time: "1d ago", color: "#E05C5C" },
   { id: 4, type: "event",    text: "Sierra Leone alumni meetup scheduled for April 15", time: "1d ago", color: "#2EC27E" },
-  { id: 5, type: "program",  text: "Malawi PSF cohort 6 completed placement", time: "2d ago", color: "#E8A020" },
+  { id: 5, type: "program",  text: "Malawi PSF cohort 6 completed retention", time: "2d ago", color: "#E8A020" },
   { id: 6, type: "checkin",  text: "Kenya bi-weekly progress update received", time: "3d ago", color: "#9B59B6" },
 ];
 

@@ -1,5 +1,5 @@
-import { createAuthClient } from "@neondatabase/auth/next";
+import { createAuthClient } from "better-auth/react";
 
-// Neon Auth manages sessions via httpOnly cookies set by the server route.
-// No baseUrl config needed — routing is handled server-side by createNeonAuth.
-export const authClient = createAuthClient();
+export const authClient = createAuthClient({
+  baseURL: process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3000",
+});

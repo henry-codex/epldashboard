@@ -8,7 +8,6 @@ import {
   IconUsers,
   IconTrendingUp,
   IconSchool,
-  IconCalendarCheck,
   IconBuildingCommunity,
   IconArrowUpRight,
   IconArrowDownRight,
@@ -107,7 +106,7 @@ const COUNTRIES_DB: Record<string, {
     ],
     recentUpdates: [
       { text: "3 institutions still pending check-in — overdue", time: "1d ago", type: "alert" },
-      { text: "Women in STEM cohort 2023 placement complete", time: "3d ago", type: "checkin" },
+      { text: "Women in STEM cohort 2023 retention complete", time: "3d ago", type: "checkin" },
     ],
     events: [
       { title: "Governance Fellows Workshop", date: "Apr 18, 2026" },
@@ -131,7 +130,7 @@ const COUNTRIES_DB: Record<string, {
       { name: "Water & Sanitation", status: "active", fellows: 15, startDate: "Jan 2023" },
     ],
     recentUpdates: [
-      { text: "Teacher Training cohort 2023 completed placement", time: "2d ago", type: "checkin" },
+      { text: "Teacher Training cohort 2023 completed retention", time: "2d ago", type: "checkin" },
       { text: "Water & Sanitation mid-term review scheduled", time: "5d ago", type: "event" },
     ],
     events: [
@@ -309,12 +308,11 @@ export default function CountryDetail() {
         </section>
 
         {/* ── Row 1: stat boxes ────────────────────────── */}
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           <StatBox label="Active Fellows" value={country.fellows} accent={country.color} icon={<IconUsers size={18} />} />
           <StatBox label="Alumni" value={country.alumni} accent="#9B59B6" icon={<IconBuildingCommunity size={18} />} />
-          <StatBox label="Placement Rate" value={`${placementRate}%`} accent="#2EC27E" icon={<IconTrendingUp size={18} />} />
+          <StatBox label="Retention Rate" value={`${placementRate}%`} accent="#2EC27E" icon={<IconTrendingUp size={18} />} />
           <StatBox label="Institutions" value={country.institutions} accent="#E8A020" icon={<IconSchool size={18} />} />
-          <StatBox label="Check-in Rate" value={`${country.checkInRate}%`} accent={country.checkInRate >= 90 ? "#2EC27E" : "#E8A020"} icon={<IconCalendarCheck size={18} />} />
         </section>
 
         {/* ── Row 2: Cohort table + Programs ──────────── */}
@@ -335,7 +333,7 @@ export default function CountryDetail() {
             }}>
               <span>Cohort</span>
               <span>Fellows</span>
-              <span>Placed</span>
+              <span>Retained</span>
               <span>Graduated</span>
             </div>
 

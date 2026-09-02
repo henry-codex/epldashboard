@@ -10,10 +10,12 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "check-types": "turbo check-types",
+    "test": "turbo test",
     "dev:native": "turbo -F native dev",
     "dev:web": "turbo -F web dev",
     "dev:server": "turbo -F server dev",
     "db:push": "turbo -F @epl-fellows-platform/db db:push",
+    "db:seed": "turbo -F server db:seed",
     "db:studio": "turbo -F @epl-fellows-platform/db db:studio",
     "db:generate": "turbo -F @epl-fellows-platform/db db:generate",
     "db:migrate": "turbo -F @epl-fellows-platform/db db:migrate"

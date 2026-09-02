@@ -8,7 +8,7 @@ const newsletters = [
     date: "April 2026",
     title: "Q1 Continental Impact Report",
     tag: "Quarterly Report",
-    preview: "Detailing high-level policy transitions across Ministry of Finance placements in Ghana and Kenya. Includes an interview with newly appointed Secretary Otieno.",
+    preview: "Detailing high-level policy transitions across Ministry of Finance roles in Ghana and Kenya. Includes an interview with newly appointed Secretary Otieno.",
     imageColor: "#3B8BEB"
   },
   {

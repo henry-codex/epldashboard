@@ -8,16 +8,16 @@ import type { SubNavItem } from "@/components/epl/sub-sidebar";
 import {
   IconUserCircle,
   IconUsers,
-  IconFlag,
+  IconWorld,
   IconShieldLock,
   IconSettings,
 } from "@tabler/icons-react";
 
 const SETTINGS_NAV: SubNavItem[] = [
-  { key: "profile",   label: "My Profile",   icon: <IconUserCircle size={20} />, href: "/dashboard/settings/profile" },
-  { key: "users",     label: "Users & Roles", icon: <IconUsers size={20} />,      href: "/dashboard/settings/users" },
-  { key: "countries", label: "Countries",     icon: <IconFlag size={20} />,       href: "/dashboard/settings/countries" },
-  { key: "security",  label: "Security & MFA", icon: <IconShieldLock size={20} />, href: "/dashboard/settings/security" },
+  { key: "profile", label: "My Profile", icon: <IconUserCircle size={18} />, href: "/dashboard/settings/profile" },
+  { key: "users", label: "Users & Roles", icon: <IconUsers size={18} />, href: "/dashboard/settings/users" },
+  { key: "countries", label: "Regional Hubs", icon: <IconWorld size={18} />, href: "/dashboard/settings/countries" },
+  { key: "security", label: "Security", icon: <IconShieldLock size={18} />, href: "/dashboard/settings/security" },
 ];
 
 interface Props {
@@ -47,9 +47,9 @@ export function SettingsLayout({ children, activePage, pageTitle }: Props) {
       backLabel="Back to Dashboard"
       backHref="/dashboard"
       sectionTitle="Settings"
-      sectionIcon={<IconSettings size={20} />}
-      sectionSubtitle="Platform & Account"
-      accent="#9B59B6"
+      sectionIcon={<IconSettings size={18} />}
+      sectionSubtitle="Platform administration"
+      accent="#4150A3"
       navItems={SETTINGS_NAV}
       activePage={activePage}
       pageTitle={pageTitle}

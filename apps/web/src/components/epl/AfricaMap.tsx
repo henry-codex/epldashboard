@@ -10,8 +10,10 @@ export interface FellowCountry {
   countryId: number;   // ISO 3166-1 numeric
   name: string;
   fellows: number;
+  alumni?: number;
   institutions: number;
   cohort: string;
+  color?: string;
 }
 
 interface Props {
@@ -29,14 +31,11 @@ const AFRICA_IDS = new Set([
   818, 834, 894,
 ]);
 
-/* ─── Brand colors per EPL country ───────────────────────── */
-const COUNTRY_COLOR: Record<number, string> = {
-  288: "#4150A3", // Ghana     — new primary blue
-  430: "#E05C5C", // Liberia   — red
-  454: "#F4BD12", // Malawi    — new gold
-  694: "#2EC27E", // Sierra Leone — green
-  404: "#9B59B6", // Kenya     — purple
-};
+const DEFAULT_HUB_COLOR = "#4150A3";
+
+function hubColor(country: FellowCountry) {
+  return country.color ?? DEFAULT_HUB_COLOR;
+}
 
 /* Module-level cache so we only fetch once per session */
 let cachedWorld: Topology<Objects> | null = null;
@@ -101,13 +100,13 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
         .attr("patternUnits", "userSpaceOnUse");
       pat.append("circle")
         .attr("cx", 1).attr("cy", 1).attr("r", 0.8)
-        .attr("fill", "rgba(255,255,255,0.18)");
+        .attr("fill", "rgba(255,255,255,0.06)");
 
       // ── Solid dark base so map has contrast in both themes ─
       svg.append("rect")
         .attr("width", width).attr("height", height)
         .attr("rx", 12)
-        .attr("fill", "rgba(4,10,36,0.45)");
+        .attr("fill", "#050505");
 
       // ── Dot grid on top of base ───────────────────────────
       svg.append("rect")
@@ -121,14 +120,14 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
         .join("path")
         .attr("d", path as any)
         .attr("fill", (f) => {
-          const id = Number(f.id);
-          const c = COUNTRY_COLOR[id];
-          return c ? `${c}55` : "rgba(255,255,255,0.07)";
+          const country = dataMap.get(Number(f.id));
+          if (!country) return "rgba(255,255,255,0.07)";
+          return `${hubColor(country)}55`;
         })
         .attr("stroke", (f) => {
-          const id = Number(f.id);
-          const c = COUNTRY_COLOR[id];
-          return c ? c : "rgba(255,255,255,0.22)";
+          const country = dataMap.get(Number(f.id));
+          if (!country) return "rgba(255,255,255,0.22)";
+          return hubColor(country);
         })
         .attr("stroke-width", (f) =>
           dataMap.has(Number(f.id)) ? 2 : 0.6
@@ -138,7 +137,7 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
           const id = Number(f.id);
           const country = dataMap.get(id);
           if (!country) return;
-          const c = COUNTRY_COLOR[id];
+          const c = hubColor(country);
           d3.select(this).attr("fill", `${c}99`);
           const rect = container!.getBoundingClientRect();
           setTooltip({
@@ -154,9 +153,8 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
           );
         })
         .on("mouseleave", function (_, f) {
-          const id = Number(f.id);
-          const c = COUNTRY_COLOR[id];
-          if (c) d3.select(this).attr("fill", `${c}55`);
+          const country = dataMap.get(Number(f.id));
+          if (country) d3.select(this).attr("fill", `${hubColor(country)}55`);
           setTooltip(null);
         })
         .on("click", (_, f) => {
@@ -172,7 +170,7 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
         if (!centroid || isNaN(centroid[0])) return;
 
         const [cx, cy] = centroid;
-        const color = COUNTRY_COLOR[cd.countryId] ?? "#4150A3";
+        const color = hubColor(cd);
         const gId = `glow-${cd.countryId}`;
 
         // Radial glow
@@ -234,13 +232,25 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
   }, [data, height, onCountryClick]);
 
   return (
-    <div ref={containerRef} style={{ position: "relative", width: "100%", height }}>
+    <div
+      ref={containerRef}
+      style={{
+        position: "relative",
+        width: "100%",
+        height,
+        background: "#000000",
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
       <svg
         ref={svgRef}
         style={{ width: "100%", height: "100%", display: "block" }}
       />
 
-      {tooltip && (
+      {tooltip && (() => {
+        const accent = hubColor(tooltip.d);
+        return (
         <div
           style={{
             position: "absolute",
@@ -249,13 +259,13 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
             background: "rgba(10, 16, 45, 0.85)",
             backdropFilter: "blur(16px)",
             WebkitBackdropFilter: "blur(16px)",
-            border: `1px solid ${COUNTRY_COLOR[tooltip.d.countryId]}50`,
+            border: `1px solid ${accent}50`,
             borderRadius: 14,
             padding: "14px 18px",
             pointerEvents: "none",
             zIndex: 30,
             minWidth: 160,
-            boxShadow: `0 12px 40px rgba(0,0,0,0.5), 0 0 20px ${COUNTRY_COLOR[tooltip.d.countryId]}20 inset`,
+            boxShadow: `0 12px 40px rgba(0,0,0,0.5), 0 0 20px ${accent}20 inset`,
             display: "flex",
             flexDirection: "column",
             gap: "6px",
@@ -267,20 +277,20 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
             style={{
               fontSize: 14,
               fontWeight: 800,
-              color: COUNTRY_COLOR[tooltip.d.countryId],
+              color: accent,
               fontFamily: "var(--font, 'DM Sans', sans-serif)",
               marginBottom: "2px",
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              textShadow: `0 0 10px ${COUNTRY_COLOR[tooltip.d.countryId]}60`
+              textShadow: `0 0 10px ${accent}60`
             }}
           >
             <span style={{
                display: "block",
                width: 8, height: 8, borderRadius: "50%",
-               backgroundColor: COUNTRY_COLOR[tooltip.d.countryId],
-               boxShadow: `0 0 8px ${COUNTRY_COLOR[tooltip.d.countryId]}`,
+               backgroundColor: accent,
+               boxShadow: `0 0 8px ${accent}`,
             }} />
             {tooltip.d.name}
           </div>
@@ -288,6 +298,16 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", fontFamily: "var(--font, 'DM Sans', sans-serif)", fontWeight: 500 }}>Active Fellows</span>
              <span style={{ fontSize: 13, color: "rgba(255,255,255,0.95)", fontFamily: "var(--font, 'DM Sans', sans-serif)", fontWeight: 700 }}>{tooltip.d.fellows}</span>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+             <span style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", fontFamily: "var(--font, 'DM Sans', sans-serif)", fontWeight: 500 }}>Alumni</span>
+             <span style={{ fontSize: 13, color: "rgba(255,255,255,0.95)", fontFamily: "var(--font, 'DM Sans', sans-serif)", fontWeight: 700 }}>{tooltip.d.alumni ?? 0}</span>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+             <span style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", fontFamily: "var(--font, 'DM Sans', sans-serif)", fontWeight: 500 }}>Total Network</span>
+             <span style={{ fontSize: 13, color: "rgba(255,255,255,0.95)", fontFamily: "var(--font, 'DM Sans', sans-serif)", fontWeight: 700 }}>{tooltip.d.fellows + (tooltip.d.alumni ?? 0)}</span>
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -309,7 +329,8 @@ export default function AfricaMap({ data, height = 480, onCountryClick }: Props)
             Cohort • {tooltip.d.cohort}
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

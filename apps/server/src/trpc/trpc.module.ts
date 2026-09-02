@@ -1,10 +1,8 @@
-import { Module, type MiddlewareConsumer, type NestModule } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 
-import { TrpcMiddleware } from "./trpc.middleware";
-
+/**
+ * tRPC is mounted on the Express instance in `src/index.ts`
+ * (Nest MiddlewareConsumer path matching is unreliable on Express 5).
+ */
 @Module({})
-export class TrpcModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TrpcMiddleware).forRoutes("trpc/*path");
-  }
-}
+export class TrpcModule {}

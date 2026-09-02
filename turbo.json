@@ -26,11 +26,17 @@
     "check-types": {
       "dependsOn": ["^check-types"]
     },
+    "test": {
+      "dependsOn": ["^test"]
+    },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "db:push": {
+      "cache": false
+    },
+    "db:seed": {
       "cache": false
     },
     "db:studio": {

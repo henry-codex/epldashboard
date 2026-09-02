@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   IconBell,
   IconSun,
@@ -8,50 +9,71 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import type { Theme } from "@/hooks/use-theme";
+import { NavProfileMenu } from "./nav-profile-menu";
 
 type Crumb = { label: string; href?: string };
 
 type Props = {
   title: string;
   breadcrumbs?: Crumb[];
+  logoHref?: string;
+  searchPlaceholder?: string;
   theme: Theme;
   onThemeToggle: () => void;
-  user?: { name?: string; email?: string } | null;
+  user?: { name?: string; email?: string; image?: string } | null;
 };
 
-export function DashHeader({ title, breadcrumbs = [], theme, onThemeToggle, user }: Props) {
+export function DashHeader({
+  title,
+  breadcrumbs = [],
+  logoHref = "/dashboard",
+  searchPlaceholder = "Search for fellows, programs, or regions...",
+  theme,
+  onThemeToggle,
+  user,
+}: Props) {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
   return (
     <header className="epl-dash-header">
-      {/* Left: title + breadcrumbs */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {breadcrumbs.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--e-text-sec)" }}>
-            {breadcrumbs.map((b, i) => (
-              <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                {b.href ? (
-                  <a href={b.href} style={{ color: "var(--e-text-sec)", textDecoration: "none" }}>{b.label}</a>
-                ) : (
-                  <span>{b.label}</span>
-                )}
-                {i < breadcrumbs.length - 1 && <IconChevronRight size={12} />}
-              </span>
-            ))}
-            <IconChevronRight size={12} />
-          </div>
-        )}
-        <h1 style={{
-          fontSize: 15,
-          fontWeight: 700,
-          color: "var(--e-text-pri)",
-          margin: 0,
-          fontFamily: "var(--font)",
-          whiteSpace: "nowrap",
-        }}>
-          {title}
-        </h1>
+      {/* Left: EPL logo + breadcrumbs + title */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+        <Link href={logoHref as never} className="epl-nav-brand epl-nav-brand-logo-only" title="EPL">
+          <span className="epl-nav-brand-mark">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/EPL_logo_square-block.webp" alt="EPL" />
+          </span>
+        </Link>
+        {(breadcrumbs.length > 0 || title) && <span className="epl-nav-brand-divider" aria-hidden />}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          {breadcrumbs.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--e-text-sec)" }}>
+              {breadcrumbs.map((b, i) => (
+                <span key={`${b.label}-${i}`} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {b.href ? (
+                    <a href={b.href} style={{ color: "var(--e-text-sec)", textDecoration: "none" }}>{b.label}</a>
+                  ) : (
+                    <span>{b.label}</span>
+                  )}
+                  {(i < breadcrumbs.length - 1 || title) && <IconChevronRight size={12} />}
+                </span>
+              ))}
+            </div>
+          )}
+          {title && (
+            <h1 style={{
+              fontSize: 15,
+              fontWeight: 700,
+              color: "var(--e-text-pri)",
+              margin: 0,
+              fontFamily: "var(--font)",
+              whiteSpace: "nowrap",
+            }}>
+              {title}
+            </h1>
+          )}
+        </div>
       </div>
 
       {/* Center: Search Bar */}
@@ -62,7 +84,7 @@ export function DashHeader({ title, breadcrumbs = [], theme, onThemeToggle, user
         }} />
         <input 
           type="text" 
-          placeholder="Search for fellows, programs, or regions..."
+          placeholder={searchPlaceholder}
           style={{
             width: "100%",
             height: 34,
@@ -139,6 +161,8 @@ export function DashHeader({ title, breadcrumbs = [], theme, onThemeToggle, user
         >
           {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
         </button>
+
+        <NavProfileMenu user={user} />
       </div>
     </header>
   );

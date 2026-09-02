@@ -7,16 +7,12 @@ import { NestedShell } from "@/components/epl/nested-shell";
 import type { SubNavItem } from "@/components/epl/sub-sidebar";
 import {
   IconUsers,
-  IconFlag,
-  IconStack2,
   IconStar,
 } from "@tabler/icons-react";
 
 const ALUMNI_NAV: SubNavItem[] = [
   { key: "dashboard",   label: "Dashboard",       icon: <IconUsers size={20} />,       href: "/dashboard/alumni" },
   { key: "executives",  label: "Executive Hub",   icon: <IconStar size={20} />,        href: "/dashboard/alumni/executives" },
-  { key: "programs",    label: "Alumni Programs", icon: <IconStack2 size={20} />,      href: "/dashboard/alumni/programs" },
-  { key: "newsletters", label: "Newsletters",     icon: <IconFlag size={20} />,        href: "/dashboard/alumni/newsletters" },
 ];
 
 interface Props {

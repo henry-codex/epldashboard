@@ -12,19 +12,25 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+const endpoint = process.env.S3_ENDPOINT || process.env.CLOUDFLARE_R2_ENDPOINT || process.env.AWS_S3_ENDPOINT;
+const accessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.AWS_S3_ACCESS_KEY_ID || "";
+const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_S3_SECRET_ACCESS_KEY || "";
+const region = process.env.S3_REGION || process.env.AWS_S3_REGION || "auto";
+
 /**
- * AWS S3 client for file storage
+ * AWS S3 & Cloudflare R2 client for file storage
  * @see https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/
  */
 export const s3Client = new S3Client({
-  region: process.env.AWS_S3_REGION!,
+  region,
+  ...(endpoint ? { endpoint } : {}),
   credentials: {
-    accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_S3_SECRET_ACCESS_KEY!,
+    accessKeyId,
+    secretAccessKey,
   },
 });
 
-const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME!;
+const BUCKET_NAME = process.env.S3_BUCKET_NAME || process.env.AWS_S3_BUCKET_NAME || "";
 
 /**
  * Storage utilities for common S3 operations
@@ -283,5 +289,9 @@ export async function getDownloadUrl(
  * Get the public URL for a file (only works if bucket/file has public access)
  */
 export function getPublicUrl(key: string): string {
-  return `https://${BUCKET_NAME}.s3.${process.env.AWS_S3_REGION}.amazonaws.com/${key}`;
+  const customPublicUrl = process.env.S3_PUBLIC_URL || process.env.R2_PUBLIC_URL;
+  if (customPublicUrl) {
+    return `${customPublicUrl.replace(/\/$/, "")}/${key}`;
+  }
+  return `https://${BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
 }

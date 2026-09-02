@@ -1,23 +1,24 @@
 "use client";
 
+import { useTheme as useNextTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
 export type Theme = "dark" | "light";
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const { resolvedTheme, setTheme } = useNextTheme();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem("epl-theme") as Theme | null;
-    if (stored === "light") setTheme("light");
+    setMounted(true);
   }, []);
 
+  // Avoid hydration mismatch: default to dark until mounted
+  const theme: Theme =
+    mounted && resolvedTheme === "light" ? "light" : "dark";
+
   function toggle() {
-    setTheme((prev) => {
-      const next: Theme = prev === "dark" ? "light" : "dark";
-      localStorage.setItem("epl-theme", next);
-      return next;
-    });
+    setTheme(theme === "dark" ? "light" : "dark");
   }
 
   return { theme, toggle };

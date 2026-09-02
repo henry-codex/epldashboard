@@ -1,105 +1,139 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import type { UserRole } from "@epl-fellows-platform/auth/permissions";
 import { CountryLayout } from "@/components/epl/country-layout";
-import { COUNTRIES_MAP, type CountryId } from "@/lib/mock-data";
+import { CountrySectionSkeleton } from "@/components/epl/country-section-empty";
+import { CohortsMetricCards, CohortsBreakdownTable } from "@/components/epl/cohorts-metrics";
+import { CohortsManager } from "@/components/epl/cohorts-manager";
+import { useCountryHub } from "@/hooks/use-country-hub";
+import { useHomePath } from "@/hooks/use-home-path";
+import { isNetworkManager, isPlatformViewer } from "@/lib/network-access";
+import { trpc } from "@/utils/trpc";
 
 export default function CountryCohortsPage() {
-  const params = useParams();
-  const id = params?.id as CountryId;
-  const country = COUNTRIES_MAP[id];
-  if (!country) return null;
+  const { hub, mock, id, isLoading, isError, error } = useCountryHub();
+  const home = useHomePath();
+  const role = (home.role ?? "viewer") as UserRole;
+  const canManage = isNetworkManager(role);
+  const readOnly = isPlatformViewer(role);
 
-  const totalFellows = country.cohorts.reduce((s, c) => s + c.fellows, 0);
-  const totalPlaced = country.cohorts.reduce((s, c) => s + c.placed, 0);
-  const totalGrad = country.cohorts.reduce((s, c) => s + c.graduated, 0);
+  const aggregatesQuery = useQuery({
+    ...trpc.cohorts.aggregates.queryOptions({ tenantId: hub?.id ?? "" }),
+    enabled: Boolean(hub?.isLive && hub.id),
+  });
+
+  if (isLoading || home.isLoading) {
+    return (
+      <CountryLayout activePage="cohorts" pageTitle="Cohorts">
+        <CountrySectionSkeleton accent={hub?.color} />
+      </CountryLayout>
+    );
+  }
+
+  if (isError || !hub) {
+    return (
+      <CountryLayout activePage="cohorts" pageTitle="Cohorts">
+        <div className="rm-state rm-state-error">
+          {error?.message ?? "Country hub not found"}
+        </div>
+      </CountryLayout>
+    );
+  }
+
+  if (mock) {
+    const totalFellows = mock.cohorts.reduce((sum, cohort) => sum + cohort.fellows, 0);
+    const totalPlaced = mock.cohorts.reduce((sum, cohort) => sum + cohort.placed, 0);
+    const totalGrad = mock.cohorts.reduce((sum, cohort) => sum + cohort.graduated, 0);
+
+    return (
+      <CountryLayout activePage="cohorts" pageTitle="Cohorts">
+        <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingBottom: 40 }}>
+          <Header hubName={mock.name} readOnly={false} />
+          <CohortsMetricCards
+            cohortCount={mock.cohorts.length}
+            totalAlumni={totalGrad}
+            totalPlaced={totalPlaced}
+            totalFellows={totalFellows}
+            accent={mock.color}
+          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {mock.cohorts.map((cohort) => {
+              const placePct = cohort.fellows > 0 ? Math.round((cohort.placed / cohort.fellows) * 100) : 0;
+              const gradPct = cohort.fellows > 0 ? Math.round((cohort.graduated / cohort.fellows) * 100) : 0;
+              return (
+                <div key={String(cohort.year)} className="gc" style={{ padding: "20px 24px" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ewhite)", marginBottom: 8, fontFamily: "var(--font)" }}>
+                    {cohort.year}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--emuted)", marginBottom: 12, fontFamily: "var(--font)" }}>
+                    {cohort.fellows} fellows · {placePct}% retained
+                    {cohort.graduated > 0 ? ` · ${gradPct}% graduated` : ""}
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)" }}>
+                    <div style={{ width: `${placePct}%`, height: "100%", borderRadius: 3, background: mock.color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </CountryLayout>
+    );
+  }
+
+  const aggregates = aggregatesQuery.data ?? {
+    cohortCount: 0,
+    totalFellows: 0,
+    totalPlaced: 0,
+    totalGraduated: 0,
+    inProgressCohorts: 0,
+    fellowsInProgress: 0,
+  };
 
   return (
     <CountryLayout activePage="cohorts" pageTitle="Cohorts">
-      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
-            Cohort Timeline — {country.name}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--emuted)", fontFamily: "var(--font)" }}>
-            {country.cohorts.length} cohorts · {totalFellows} total fellows · {totalGrad} graduated
-          </div>
-        </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 24, paddingBottom: 40 }}>
+        <Header hubName={hub.name} readOnly={readOnly} />
 
-        {/* Summary row */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-          {[
-            { label: "Total Fellows", value: totalFellows, color: country.color },
-            { label: "Total Placed", value: totalPlaced, color: "#2EC27E" },
-            { label: "Graduated", value: totalGrad, color: "#3B8BEB" },
-            { label: "In Progress", value: totalFellows - totalGrad, color: "#E8A020" },
-          ].map((s) => (
-            <div key={s.label} className="gc" style={{ padding: "16px 20px", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: "var(--font)" }}>{s.value}</div>
-              <div style={{ fontSize: 10, color: "var(--emuted)", fontFamily: "var(--font)", marginTop: 2 }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
+        {aggregatesQuery.isLoading ? (
+          <CountrySectionSkeleton accent={hub.color} />
+        ) : (
+          <CohortsMetricCards
+            cohortCount={aggregates.cohortCount}
+            totalAlumni={aggregates.totalGraduated}
+            totalPlaced={aggregates.totalPlaced}
+            totalFellows={aggregates.totalFellows}
+            inProgressCohorts={aggregates.inProgressCohorts}
+            fellowsInProgress={aggregates.fellowsInProgress}
+            accent={hub.color}
+            showPipeline={readOnly}
+          />
+        )}
 
-        {/* Cohort cards */}
-        {country.cohorts.map((c) => {
-          const placePct = Math.round((c.placed / c.fellows) * 100);
-          const gradPct = c.graduated > 0 ? Math.round((c.graduated / c.fellows) * 100) : 0;
-          return (
-            <div key={c.year} className="gc" style={{ padding: "20px 24px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{
-                    width: 42, height: 42, borderRadius: 10,
-                    background: `${country.color}18`, border: `1px solid ${country.color}30`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 15, fontWeight: 800, color: country.color, fontFamily: "var(--font)",
-                  }}>
-                    {c.year.toString().slice(2)}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
-                      Cohort {c.year}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--emuted)", fontFamily: "var(--font)" }}>
-                      {c.fellows} fellows · {c.graduated > 0 ? "Graduated" : "Active"}
-                    </div>
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: "var(--rf)",
-                  background: c.graduated > 0 ? "rgba(59,139,235,0.12)" : "rgba(46,194,126,0.12)",
-                  color: c.graduated > 0 ? "#3B8BEB" : "#2EC27E",
-                  border: `1px solid ${c.graduated > 0 ? "rgba(59,139,235,0.30)" : "rgba(46,194,126,0.30)"}`,
-                }}>
-                  {c.graduated > 0 ? "Completed" : "In Progress"}
-                </span>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, color: "var(--emuted)", fontFamily: "var(--font)" }}>Placement</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: "#2EC27E", fontFamily: "var(--font)" }}>{placePct}%</span>
-                  </div>
-                  <div style={{ width: "100%", height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)" }}>
-                    <div style={{ width: `${placePct}%`, height: "100%", borderRadius: 3, background: "#2EC27E" }} />
-                  </div>
-                </div>
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, color: "var(--emuted)", fontFamily: "var(--font)" }}>Graduation</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: "#3B8BEB", fontFamily: "var(--font)" }}>{gradPct}%</span>
-                  </div>
-                  <div style={{ width: "100%", height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)" }}>
-                    <div style={{ width: `${gradPct}%`, height: "100%", borderRadius: 3, background: "#3B8BEB" }} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        <CohortsManager
+          tenantId={hub.id}
+          hubName={hub.name}
+          accent={hub.color}
+          countryId={id}
+          readOnly={!canManage}
+        />
       </div>
     </CountryLayout>
+  );
+}
+
+function Header({ hubName, readOnly }: { hubName: string; readOnly: boolean }) {
+  return (
+    <div>
+      <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
+        {hubName} Cohorts
+      </h2>
+      <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--emuted)", fontFamily: "var(--font)" }}>
+        {readOnly
+          ? "Cohort-by-cohort view for this hub — started, in fellowship, alumni, and retention after graduation."
+          : "Add cohort records for each class. Historic cohorts use manual counts; current cohorts can link to Network."}
+      </p>
+    </div>
   );
 }

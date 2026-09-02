@@ -1,174 +1,382 @@
 "use client";
 
-import { useState } from "react";
-import { SettingsLayout } from "@/components/epl/settings-layout";
-import { COUNTRIES } from "@/lib/mock-data";
-import { 
-  IconFlag, IconPlus, IconBuildingBank, IconMapPin, IconSearch,
-  IconDotsVertical, IconChecklist, IconUsers
+import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { queryClient, trpc } from "@/utils/trpc";
+import { SlidePanel } from "@/components/epl/slide-panel";
+import { CountryPicker } from "@/components/epl/country-picker";
+import type { WorldCountry } from "@/lib/world-countries";
+import { flagImageUrl, resolveIso2 } from "@/lib/world-countries";
+import {
+  IconPlus,
+  IconSearch,
+  IconLoader2,
+  IconWorld,
+  IconMapPin,
+  IconUserPlus,
+  IconUsers,
+  IconCheck,
+  IconChevronRight,
 } from "@tabler/icons-react";
+
+const PRESET_COLORS = ["#4150A3", "#2EC27E", "#E05C5C", "#F4BD12", "#3B8BEB", "#8E44AD"];
+
+const EMPTY_ADMIN = {
+  color: "#4150A3",
+  adminName: "",
+  adminEmail: "",
+  adminPassword: "",
+};
+
+function HubFlag({
+  countryCode,
+  iso2,
+  flag,
+  size = 40,
+}: {
+  countryCode: string;
+  iso2?: string;
+  flag?: string;
+  size?: number;
+}) {
+  const code = resolveIso2({ countryCode, iso2, flag });
+  if (!code) {
+    return <span className="rm-hub-flag-fallback">{countryCode.slice(0, 2)}</span>;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      className="rm-hub-flag-img"
+      src={flagImageUrl(code, 80)}
+      alt=""
+      width={size}
+      height={size}
+    />
+  );
+}
 
 export default function CountriesSettingsPage() {
   const [search, setSearch] = useState("");
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [selected, setSelected] = useState<WorldCountry | null>(null);
+  const [form, setForm] = useState(EMPTY_ADMIN);
+
+  const listQuery = useQuery(trpc.tenants.list.queryOptions());
+
+  const existingCodes = useMemo(
+    () => (listQuery.data ?? []).map((c) => c.countryCode).filter(Boolean),
+    [listQuery.data],
+  );
+
+  const resetAndClose = useCallback(() => {
+    setSelected(null);
+    setForm(EMPTY_ADMIN);
+    setPanelOpen(false);
+  }, []);
+
+  const createMutation = useMutation(
+    trpc.tenants.createWithAdmin.mutationOptions({
+      onSuccess: (data) => {
+        toast.success(`${data.tenant.name} hub ready — ${data.admin.email} can sign in`);
+        void queryClient.invalidateQueries({ queryKey: trpc.tenants.list.queryKey() });
+        void queryClient.invalidateQueries({ queryKey: trpc.users.list.queryKey() });
+        resetAndClose();
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  const countries = useMemo(() => {
+    const rows = listQuery.data ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.countryCode.toLowerCase().includes(q) ||
+        c.slug.toLowerCase().includes(q),
+    );
+  }, [listQuery.data, search]);
+
+  const isEmpty = !listQuery.isLoading && !listQuery.isError && (listQuery.data?.length ?? 0) === 0;
+
+  function setField<K extends keyof typeof EMPTY_ADMIN>(key: K, value: (typeof EMPTY_ADMIN)[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selected) {
+      toast.error("Pick a country from the list");
+      return;
+    }
+    if (!form.adminName.trim() || !form.adminEmail.trim() || !form.adminPassword) {
+      toast.error("First admin name, email, and password are required");
+      return;
+    }
+    if (form.adminPassword.length < 8) {
+      toast.error("Admin password must be at least 8 characters");
+      return;
+    }
+    createMutation.mutate({
+      name: selected.name,
+      countryCode: selected.iso3,
+      flag: selected.flag,
+      iso2: selected.iso2,
+      color: form.color,
+      adminName: form.adminName.trim(),
+      adminEmail: form.adminEmail.trim(),
+      adminPassword: form.adminPassword,
+    });
+  }
+
+  const footer = (
+    <div className="epl-slide-actions">
+      <button type="button" className="rm-ghost" onClick={resetAndClose} disabled={createMutation.isPending}>
+        Cancel
+      </button>
+      <button
+        type="submit"
+        form="create-hub-form"
+        className="rm-primary"
+        disabled={createMutation.isPending || !selected}
+      >
+        {createMutation.isPending ? <IconLoader2 size={15} className="animate-spin" /> : <IconCheck size={15} />}
+        Create hub & admin
+      </button>
+    </div>
+  );
 
   return (
-    <SettingsLayout activePage="countries" pageTitle="Regional Management">
-      <div style={{ display: "flex", flexDirection: "column", gap: 32, paddingBottom: 60 }}>
-        
-        {/* Header with Search & Actions */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-           <div>
-              <h2 style={{ fontSize: 24, fontWeight: 800, color: "var(--ewhite)", margin: 0 }}>
-                 Partner Nations
-              </h2>
-              <p style={{ fontSize: 14, color: "var(--emuted)", marginTop: 6 }}>
-                 Add and manage participating countries and their respective program boundaries.
-              </p>
-           </div>
-           
-           <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ position: "relative" }}>
-                 <IconSearch size={16} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--emuted)" }} />
-                 <input 
-                    type="text" 
-                    placeholder="Search countries..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    style={{ 
-                       padding: "12px 16px 12px 42px", borderRadius: 12, background: "rgba(255,255,255,0.02)", 
-                       border: "1px solid rgba(255,255,255,0.08)", color: "var(--ewhite)", 
-                       fontSize: 14, width: 280, outline: "none", transition: "all 0.3s"
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = "var(--ewhite)"}
-                    onBlur={(e) => e.target.style.borderColor = "rgba(255,255,255,0.08)"}
-                 />
-              </div>
-              <button 
-                className="epl-btn"
-                style={{
-                   display: "flex", alignItems: "center", gap: 8, padding: "12px 20px", 
-                   background: "linear-gradient(135deg, #9B59B6 0%, #8E44AD 100%)",
-                   borderRadius: 12, color: "white", border: "none", fontWeight: 800, 
-                   fontSize: 13, cursor: "pointer", boxShadow: "0 8px 20px rgba(155,89,182,0.3)"
-                }}
+    <div className="rm-page">
+      <header className="rm-header">
+        <div>
+          <p className="rm-kicker">Settings · Regional</p>
+          <h1 className="rm-title">Regional hubs</h1>
+          <p className="rm-sub">
+            Partner nations with a country admin who can sign in from day one.
+          </p>
+        </div>
+        <div className="rm-header-actions">
+          <div className="rm-search">
+            <IconSearch size={15} />
+            <input
+              type="text"
+              placeholder="Search hubs…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <button type="button" className="rm-primary" onClick={() => setPanelOpen(true)}>
+            <IconPlus size={16} />
+            New hub
+          </button>
+        </div>
+      </header>
+
+      <section className="rm-list">
+        <div className="rm-list-label">
+          Active regional hubs
+          <span>{listQuery.isFetching ? "Syncing…" : `${countries.length}`}</span>
+        </div>
+
+        {listQuery.isLoading && (
+          <div className="rm-state">
+            <IconLoader2 size={18} className="animate-spin" />
+            Loading from database…
+          </div>
+        )}
+
+        {listQuery.isError && (
+          <div className="rm-state rm-state-error">
+            Could not load countries: {listQuery.error.message}
+          </div>
+        )}
+
+        {isEmpty && (
+          <div className="rm-empty">
+            <div className="rm-empty-icon">
+              <IconMapPin size={28} />
+            </div>
+            <h3>No hubs yet</h3>
+            <p>
+              Create the first partner nation and assign a country admin — both land in Postgres in one step.
+            </p>
+            <button type="button" className="rm-primary" onClick={() => setPanelOpen(true)}>
+              <IconPlus size={16} /> Create first hub
+            </button>
+          </div>
+        )}
+
+        {!isEmpty && !listQuery.isLoading && (
+          <div className="rm-hub-table">
+            <div className="rm-hub-head">
+              <span>Country</span>
+              <span>ISO</span>
+              <span>Users</span>
+              <span>Status</span>
+              <span />
+            </div>
+            {countries.map((c) => (
+              <Link
+                key={c.id}
+                href={`/dashboard/countries/${c.id}` as never}
+                className="rm-hub-row"
               >
-                  <IconPlus size={18} /> New Country
-              </button>
-           </div>
-        </div>
-
-        {/* Create Country Form Card */}
-        <div className="gc" style={{ padding: "30px", borderLeft: "4px solid #9B59B6" }}>
-           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-              <div style={{ 
-                 width: 44, height: 44, borderRadius: 12, background: "rgba(155,89,182,0.1)", 
-                 display: "flex", alignItems: "center", justifyContent: "center", color: "#9B59B6" 
-              }}>
-                 <IconFlag size={22} />
-              </div>
-              <div>
-                 <div style={{ fontSize: 18, fontWeight: 800, color: "var(--ewhite)" }}>Establish New Country Hub</div>
-                 <div style={{ fontSize: 12, color: "var(--emuted)" }}>Provision institutional space for a new regional partnership.</div>
-              </div>
-           </div>
-
-           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                 <label style={{ fontSize: 11, color: "var(--emuted)", fontWeight: 800, letterSpacing: "1px" }}>COUNTRY NAME</label>
-                 <input 
-                    type="text" 
-                    placeholder="e.g. Rwanda"
-                    style={{ 
-                       padding: "12px 16px", borderRadius: 10, background: "rgba(255,255,255,0.02)", 
-                       border: "1px solid rgba(255,255,255,0.05)", color: "var(--ewhite)", fontSize: 14, outline: "none"
-                    }}
-                 />
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                 <label style={{ fontSize: 11, color: "var(--emuted)", fontWeight: 800, letterSpacing: "1px" }}>ISO CODE / FLAG</label>
-                 <div style={{ display: "flex", gap: 8 }}>
-                    <input 
-                       type="text" 
-                       placeholder="🇷🇼"
-                       style={{ 
-                          width: 60, padding: "12px", borderRadius: 10, background: "rgba(255,255,255,0.02)", 
-                          border: "1px solid rgba(255,255,255,0.05)", color: "var(--ewhite)", fontSize: 18, textAlign: "center", outline: "none"
-                       }}
+                <div className="rm-hub-country">
+                  <div className="rm-hub-flag" style={{ boxShadow: `0 0 0 2px ${c.color}40` }}>
+                    <HubFlag
+                      countryCode={c.countryCode}
+                      iso2={c.iso2}
+                      flag={c.flag}
                     />
-                    <input 
-                       type="text" 
-                       placeholder="RWA"
-                       style={{ 
-                          flex: 1, padding: "12px 16px", borderRadius: 10, background: "rgba(255,255,255,0.02)", 
-                          border: "1px solid rgba(255,255,255,0.05)", color: "var(--ewhite)", fontSize: 14, outline: "none"
-                       }}
-                    />
-                 </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                 <label style={{ fontSize: 11, color: "var(--emuted)", fontWeight: 800, letterSpacing: "1px" }}>PRIMARY ACCENT COLOR</label>
-                 <div style={{ display: "flex", gap: 8 }}>
-                    <div style={{ width: 44, height: 44, borderRadius: 10, background: "#8E44AD", cursor: "pointer" }} />
-                    <input 
-                       type="text" 
-                       placeholder="#8E44AD"
-                       style={{ 
-                          flex: 1, padding: "12px 16px", borderRadius: 10, background: "rgba(255,255,255,0.02)", 
-                          border: "1px solid rgba(255,255,255,0.05)", color: "var(--ewhite)", fontSize: 14, outline: "none"
-                       }}
-                    />
-                 </div>
-              </div>
-           </div>
-
-           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 24, gap: 12 }}>
-              <button style={{ 
-                 background: "none", border: "1px solid rgba(255,255,255,0.1)", 
-                 padding: "10px 20px", borderRadius: 10, color: "var(--emuted)", 
-                 fontSize: 13, fontWeight: 700, cursor: "pointer" 
-              }}>Cancel</button>
-              <button style={{ 
-                 background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", 
-                 padding: "10px 24px", borderRadius: 10, color: "var(--ewhite)", 
-                 fontSize: 13, fontWeight: 800, cursor: "pointer" 
-              }}>Create Country Hub</button>
-           </div>
-        </div>
-
-        {/* Existing Countries Hub List */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-           <div style={{ fontSize: 11, color: "var(--emuted)", fontWeight: 800, letterSpacing: "1px" }}>ACTIVE REGIONAL HUBS</div>
-           
-           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))", gap: 20 }}>
-             {COUNTRIES.map((c) => (
-                <div key={c.id} className="gc hover-lift" style={{ padding: "24px", position: "relative" }}>
-                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                         <div style={{ fontSize: 24, width: 44, height: 44, borderRadius: 10, background: "rgba(255,255,255,0.03)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(255,255,255,0.05)" }}>{c.flag}</div>
-                         <div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: "var(--ewhite)" }}>{c.name}</div>
-                            <div style={{ fontSize: 11, color: "var(--emuted)", fontWeight: 600 }}>{c.id.toUpperCase()} • {c.institutions} Partners</div>
-                         </div>
-                      </div>
-                      <IconDotsVertical size={20} color="var(--emuted)" style={{ cursor: "pointer" }} />
-                   </div>
-
-                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                       <div style={{ padding: "10px", borderRadius: 8, background: "rgba(255,255,255,0.02)", display: "flex", alignItems: "center", gap: 8 }}>
-                          <IconChecklist size={14} color={c.color} />
-                          <span style={{ fontSize: 12, color: "var(--ewhite)", fontWeight: 600 }}>{c.checkInRate}% Healthy</span>
-                       </div>
-                       <div style={{ padding: "10px", borderRadius: 8, background: "rgba(255,255,255,0.02)", display: "flex", alignItems: "center", gap: 8 }}>
-                          <IconUsers size={14} color="#3B8BEB" />
-                          <span style={{ fontSize: 12, color: "var(--ewhite)", fontWeight: 600 }}>{c.fellows} Active</span>
-                       </div>
-                   </div>
+                  </div>
+                  <div>
+                    <strong>{c.name}</strong>
+                    <span>{c.slug}</span>
+                  </div>
                 </div>
-             ))}
-           </div>
-        </div>
+                <span className="rm-hub-iso">{c.countryCode}</span>
+                <span className="rm-hub-users">
+                  <IconUsers size={14} />
+                  {c.memberCount}
+                </span>
+                <span className="rm-pill">
+                  <i style={{ background: c.isActive ? "#2EC27E" : "var(--emuted)" }} />
+                  {c.isActive ? "Active" : "Inactive"}
+                </span>
+                <IconChevronRight size={16} className="rm-hub-chevron" />
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
 
-      </div>
-    </SettingsLayout>
+      <SlidePanel
+        open={panelOpen}
+        onClose={resetAndClose}
+        title="New regional hub"
+        description="Pick a country — flag and ISO fill in automatically — then add the first admin."
+        footer={footer}
+        width={520}
+      >
+        <form id="create-hub-form" className="rm-panel-form" onSubmit={handleCreate}>
+          <div className="rm-panel-section">
+            <div className="rm-panel-section-head">
+              <IconWorld size={16} />
+              <span>Country</span>
+            </div>
+
+            <div className="epl-slide-field">
+              <span>Select country</span>
+              <CountryPicker
+                value={selected}
+                onChange={setSelected}
+                excludeCodes={existingCodes}
+                autoFocus
+              />
+            </div>
+
+            <div className="rm-panel-row">
+              <div className="epl-slide-field">
+                <span>Flag</span>
+                <div className={`rm-autofill${selected ? " has-value" : ""}`}>
+                  {selected ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={flagImageUrl(selected.iso2, 40)}
+                      alt=""
+                      width={28}
+                      height={20}
+                      style={{ borderRadius: 3, display: "block" }}
+                    />
+                  ) : (
+                    "—"
+                  )}
+                </div>
+              </div>
+              <div className="epl-slide-field">
+                <span>ISO code</span>
+                <div className={`rm-autofill${selected ? " has-value" : ""}`}>
+                  {selected?.iso3 ?? "—"}
+                </div>
+              </div>
+            </div>
+
+            <div className="epl-slide-field">
+              <span>Accent color</span>
+              <p className="rm-panel-hint" style={{ marginTop: 0 }}>
+                Saved on the hub and used on map, charts, and country pages.
+              </p>
+              <div className="rm-colors">
+                {PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`rm-swatch${form.color === c ? " is-active" : ""}`}
+                    style={{ background: c }}
+                    onClick={() => setField("color", c)}
+                    aria-label={c}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={form.color}
+                  onChange={(e) => setField("color", e.target.value)}
+                  className="rm-color-input"
+                />
+              </div>
+              <div className="rm-color-preview" style={{ background: form.color }} />
+            </div>
+          </div>
+
+          <div className="rm-panel-section">
+            <div className="rm-panel-section-head">
+              <IconUserPlus size={16} />
+              <span>First admin</span>
+            </div>
+            <p className="rm-panel-hint">
+              This person gets the Country Admin role and can sign in immediately.
+            </p>
+
+            <label className="epl-slide-field">
+              <span>Full name</span>
+              <input
+                value={form.adminName}
+                onChange={(e) => setField("adminName", e.target.value)}
+                placeholder="e.g. Ama Mensah"
+                required
+              />
+            </label>
+
+            <label className="epl-slide-field">
+              <span>Work email</span>
+              <input
+                type="email"
+                value={form.adminEmail}
+                onChange={(e) => setField("adminEmail", e.target.value)}
+                placeholder="admin@example.gov"
+                required
+              />
+            </label>
+
+            <label className="epl-slide-field">
+              <span>Temporary password</span>
+              <input
+                type="password"
+                value={form.adminPassword}
+                onChange={(e) => setField("adminPassword", e.target.value)}
+                placeholder="Min. 8 characters"
+                minLength={8}
+                required
+                autoComplete="new-password"
+              />
+            </label>
+          </div>
+        </form>
+      </SlidePanel>
+    </div>
   );
 }

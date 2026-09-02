@@ -9,11 +9,11 @@ interface ActivityEvent {
 
 const EVENTS: ActivityEvent[] = [
   { id: 1, type: "checkin",   text: "Kwame Mensah submitted weekly check-in",        time: "2m ago" },
-  { id: 2, type: "placement", text: "Fatima Diallo placed at BrightHive Energy, GH", time: "11m ago" },
+  { id: 2, type: "placement", text: "Fatima Diallo retained at BrightHive Energy, GH", time: "11m ago" },
   { id: 3, type: "review",    text: "Monthly cohort review completed — Sierra Leone", time: "34m ago" },
   { id: 4, type: "checkin",   text: "Amara Koroma submitted bi-weekly check-in",     time: "1h ago" },
   { id: 5, type: "alert",     text: "3 fellows missed deadline in Malawi",           time: "2h ago" },
-  { id: 6, type: "placement", text: "Ibrahim Sesay placed at NovaTech Solutions, SL", time: "3h ago"},
+  { id: 6, type: "placement", text: "Ibrahim Sesay retained at NovaTech Solutions, SL", time: "3h ago"},
 ];
 
 const DOT_COLORS: Record<EventType, string> = {

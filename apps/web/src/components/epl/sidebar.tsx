@@ -4,20 +4,21 @@ import Link from "next/link";
 import {
   IconLayoutDashboard,
   IconUsers,
-  IconCalendarCheck,
   IconMapPin,
   IconChartBar,
   IconSettings,
   IconChevronLeft,
+  IconChevronRight,
   IconLogout,
-  IconGlobe,
   IconBuildingCommunity,
   IconCalendarEvent,
   IconSchool,
   IconFlag,
+  IconUser,
 } from "@tabler/icons-react";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
+import { userAvatarUrl } from "@/lib/user-avatar";
 
 type NavItem = {
   key: string;
@@ -27,19 +28,18 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { key: "overview",    label: "Overview",      icon: <IconLayoutDashboard size={18} />, href: "/dashboard" },
-  { key: "countries",   label: "Countries",     icon: <IconFlag size={18} />,            href: "/dashboard/countries" },
-  { key: "map",          label: "Map",           icon: <IconMapPin size={18} />,          href: "/dashboard/map" },
-  { key: "fellows",     label: "Fellows",       icon: <IconUsers size={18} />,           href: "/dashboard/fellows" },
-  { key: "programs",    label: "Programs",      icon: <IconSchool size={18} />,          href: "/dashboard/programs" },
-  { key: "checkins",    label: "Check-ins",     icon: <IconCalendarCheck size={18} />,   href: "/dashboard/checkins" },
-  { key: "reports",     label: "Reports",       icon: <IconChartBar size={18} />,        href: "/dashboard/reports" },
-  { key: "alumni",      label: "Alumni Network",icon: <IconBuildingCommunity size={18}/>,href: "/dashboard/alumni" },
-  { key: "events",      label: "Events",        icon: <IconCalendarEvent size={18} />,   href: "/dashboard/events" },
+  { key: "overview", label: "Overview", icon: <IconLayoutDashboard size={18} />, href: "/dashboard" },
+  { key: "countries", label: "Countries", icon: <IconFlag size={18} />, href: "/dashboard/countries" },
+  { key: "map", label: "Map", icon: <IconMapPin size={18} />, href: "/dashboard/map" },
+  { key: "fellows", label: "Network", icon: <IconUsers size={18} />, href: "/dashboard/fellows" },
+  { key: "programs", label: "Programs", icon: <IconSchool size={18} />, href: "/dashboard/programs" },
+  { key: "reports", label: "Data", icon: <IconChartBar size={18} />, href: "/dashboard/reports" },
+  { key: "alumni", label: "Alumni Network", icon: <IconBuildingCommunity size={18} />, href: "/dashboard/alumni" },
+  { key: "events", label: "Events", icon: <IconCalendarEvent size={18} />, href: "/dashboard/events" },
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { key: "settings",  label: "Settings",   icon: <IconSettings size={18} />,        href: "/dashboard/settings" },
+  { key: "settings", label: "Settings", icon: <IconSettings size={18} />, href: "/dashboard/settings" },
 ];
 
 type Props = {
@@ -47,9 +47,10 @@ type Props = {
   onCollapse: () => void;
   activePage: string;
   user?: { name?: string; email?: string; image?: string } | null;
+  ready?: boolean;
 };
 
-export function EPLSidebar({ collapsed, onCollapse, activePage, user }: Props) {
+export function EPLSidebar({ collapsed, onCollapse, activePage, user, ready = true }: Props) {
   const router = useRouter();
 
   async function handleSignOut() {
@@ -57,48 +58,38 @@ export function EPLSidebar({ collapsed, onCollapse, activePage, user }: Props) {
     router.replace("/login");
   }
 
-  const initial = user?.name?.charAt(0).toUpperCase() ?? user?.email?.charAt(0).toUpperCase() ?? "U";
+  const displayName = user?.name?.trim() || "Admin";
+  const email = user?.email ?? "";
+  const avatarSrc = user ? userAvatarUrl(user, 96) : "";
 
   return (
-    <aside className={`epl-sidebar${collapsed ? " epl-collapsed" : ""}`}
-      style={{ fontFamily: "var(--font)" }}>
-
-      {/* ── Logo ──────────────────────────────────────────── */}
-      <div style={{ padding: "16px 12px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* Logo mark */}
-          <div style={{
-            width: 48, height: 48,
-            borderRadius: 14,
-            overflow: "hidden", 
-            background: "#fff", 
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-            border: "2.5px solid #FFFFFF",
-            boxShadow: "0 10px 25px rgba(0, 0, 0, 0.35), 0 0 15px rgba(255, 255, 255, 0.15)",
-          }}>
-            <img 
-              src="/EPL_logo_square-block.webp" 
-              alt="EPL Global Logo" 
-              style={{ width: "88%", height: "88%", objectFit: "contain" }} 
-            />
-          </div>
-
-          <div className="epl-sidebar-logo-text">
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF", lineHeight: 1.2 }}>
-              EPL Global
-            </div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", fontWeight: 500 }}>
-              Fellows Platform
-            </div>
-          </div>
+    <aside
+      className={`epl-sidebar${collapsed ? " epl-collapsed" : ""}${ready ? " epl-ready" : ""}`}
+      style={{ fontFamily: "var(--font)" }}
+    >
+      <div className="epl-sidebar-brand">
+        <div className="epl-sidebar-logo-mark">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/EPL_logo_square-block.webp" alt="EPL Global Logo" />
         </div>
+        {!collapsed && (
+          <div className="epl-sidebar-logo-text">
+            <div className="epl-sidebar-logo-title">EPL Global</div>
+            <div className="epl-sidebar-logo-sub">Fellows Platform</div>
+          </div>
+        )}
+        <button
+          type="button"
+          className="epl-sidebar-collapse"
+          onClick={onCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <IconChevronRight size={14} /> : <IconChevronLeft size={14} />}
+        </button>
       </div>
 
-      {/* ── Navigation ────────────────────────────────────── */}
-      <nav style={{ flex: 1, padding: "10px 0", overflowY: "auto" }}>
-        <div className="epl-nav-section">Main</div>
-
+      <nav className="epl-sidebar-nav">
+        {!collapsed && <div className="epl-nav-section">Main</div>}
         {NAV_ITEMS.map((item) => (
           <Link
             key={item.key}
@@ -106,13 +97,12 @@ export function EPLSidebar({ collapsed, onCollapse, activePage, user }: Props) {
             className={`epl-nav-item${activePage === item.key ? " epl-active" : ""}`}
             title={collapsed ? item.label : undefined}
           >
-            <span style={{ flexShrink: 0, display: "flex" }}>{item.icon}</span>
-            <span className="epl-nav-label">{item.label}</span>
+            <span className="epl-nav-icon">{item.icon}</span>
+            {!collapsed && <span className="epl-nav-label">{item.label}</span>}
           </Link>
         ))}
 
-        <div className="epl-nav-section" style={{ marginTop: 14 }}>System</div>
-
+        {!collapsed && <div className="epl-nav-section epl-nav-section-spaced">System</div>}
         {BOTTOM_ITEMS.map((item) => (
           <Link
             key={item.key}
@@ -120,57 +110,47 @@ export function EPLSidebar({ collapsed, onCollapse, activePage, user }: Props) {
             className={`epl-nav-item${activePage === item.key ? " epl-active" : ""}`}
             title={collapsed ? item.label : undefined}
           >
-            <span style={{ flexShrink: 0, display: "flex" }}>{item.icon}</span>
-            <span className="epl-nav-label">{item.label}</span>
+            <span className="epl-nav-icon">{item.icon}</span>
+            {!collapsed && <span className="epl-nav-label">{item.label}</span>}
           </Link>
         ))}
       </nav>
 
-      {/* ── User + Sign out ───────────────────────────────── */}
-      <div style={{
-        padding: "10px 12px",
-        borderTop: "1px solid rgba(255,255,255,0.08)",
-      }}>
-        {/* User row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6, overflow: "hidden" }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: "50%",
-            background: "#2D3985",
-            border: "1px solid rgba(255, 255, 255, 0.20)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-            fontSize: 12, fontWeight: 600, color: "#fff",
-          }}>
-            {initial}
-          </div>
-          <div className="epl-sidebar-bottom-text" style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ewhite)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {user?.name ?? "Admin"}
+      <div className="epl-sidebar-footer">
+        <div className={`epl-sidebar-profile${collapsed ? " is-collapsed" : ""}`}>
+          <Link
+            href={"/dashboard/settings/profile" as never}
+            className="epl-sidebar-user"
+            title={collapsed ? displayName : "Open profile settings"}
+          >
+            <div className="epl-sidebar-avatar">
+              {avatarSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarSrc} alt="" />
+              ) : (
+                displayName.charAt(0).toUpperCase()
+              )}
             </div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.60)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {user?.email ?? ""}
-            </div>
-          </div>
-        </div>
-
-        {/* Sign out + collapse */}
-        <div style={{ display: "flex", gap: 6 }}>
+            {!collapsed && (
+              <div className="epl-sidebar-user-meta">
+                <div className="epl-sidebar-user-name">{displayName}</div>
+                <div className="epl-sidebar-user-email">{email || "Account"}</div>
+              </div>
+            )}
+            {!collapsed && (
+              <span className="epl-sidebar-user-action" aria-hidden>
+                <IconUser size={13} />
+              </span>
+            )}
+          </Link>
           <button
+            type="button"
+            className="epl-sidebar-signout"
             onClick={handleSignOut}
-            className="epl-nav-item"
             title={collapsed ? "Sign out" : undefined}
-            style={{ flex: 1, justifyContent: collapsed ? "center" : "flex-start", cursor: "pointer" }}
           >
-            <span style={{ flexShrink: 0, display: "flex" }}><IconLogout size={16} /></span>
-            <span className="epl-nav-label" style={{ fontSize: 12 }}>Sign out</span>
-          </button>
-
-          <button
-            onClick={onCollapse}
-            className="epl-collapse-btn"
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <IconChevronLeft size={14} />
+            <IconLogout size={15} />
+            {!collapsed && <span>Sign out</span>}
           </button>
         </div>
       </div>

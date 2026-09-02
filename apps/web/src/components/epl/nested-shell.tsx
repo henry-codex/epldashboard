@@ -7,8 +7,8 @@ import { useTheme } from "@/hooks/use-theme";
 interface Props {
   children: React.ReactNode;
   /* Sub-sidebar config */
-  backLabel: string;
-  backHref: string;
+  backLabel?: string;
+  backHref?: string;
   sectionTitle: string;
   sectionIcon?: React.ReactNode;
   sectionSubtitle?: string;
@@ -64,6 +64,8 @@ export function NestedShell({
           <DashHeader
             title={pageTitle}
             breadcrumbs={breadcrumbs}
+            logoHref={navItems.find((item) => item.key === "overview")?.href ?? backHref ?? "/dashboard"}
+            searchPlaceholder={`Search in ${sectionTitle}…`}
             theme={theme}
             onThemeToggle={toggle}
             user={user}
