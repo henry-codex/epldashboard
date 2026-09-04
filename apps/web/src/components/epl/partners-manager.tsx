@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -18,6 +18,10 @@ import {
   IconSearch,
   IconUsers,
   IconHeartHandshake,
+  IconTable,
+  IconLayoutGrid,
+  IconChevronLeft,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
@@ -157,6 +161,9 @@ export function PartnersManager({ tenantId, hubName, accent, kind = "placement",
   const [form, setForm] = useState<PartnerForm>(EMPTY_FORM);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTER)[number]["value"]>("all");
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(0);
 
   const listQuery = useQuery(
     trpc.partners.list.queryOptions({
@@ -217,6 +224,19 @@ export function PartnersManager({ tenantId, hubName, accent, kind = "placement",
   );
 
   const partners = useMemo(() => listQuery.data?.items ?? [], [listQuery.data?.items]);
+
+  const pageCount = Math.max(1, Math.ceil(partners.length / pageSize));
+  const clampedPage = Math.min(page, pageCount - 1);
+  const pagePartners = useMemo(
+    () => partners.slice(clampedPage * pageSize, clampedPage * pageSize + pageSize),
+    [partners, clampedPage, pageSize],
+  );
+  const rangeStart = partners.length === 0 ? 0 : clampedPage * pageSize + 1;
+  const rangeEnd = Math.min(partners.length, clampedPage * pageSize + pageSize);
+
+  useEffect(() => {
+    setPage(0);
+  }, [search, statusFilter, pageSize]);
 
   function closePanel() {
     setPanelOpen(false);
@@ -340,6 +360,24 @@ export function PartnersManager({ tenantId, hubName, accent, kind = "placement",
             />
           </div>
         )}
+        <div className="pt-view-toggle" role="group" aria-label="View mode">
+          <button
+            type="button"
+            className={`pt-view-btn${viewMode === "table" ? " is-active" : ""}`}
+            onClick={() => setViewMode("table")}
+            title="Table view"
+          >
+            <IconTable size={15} /> Table
+          </button>
+          <button
+            type="button"
+            className={`pt-view-btn${viewMode === "cards" ? " is-active" : ""}`}
+            onClick={() => setViewMode("cards")}
+            title="Card view"
+          >
+            <IconLayoutGrid size={15} /> Cards
+          </button>
+        </div>
       </div>
 
       {listQuery.isLoading ? (
@@ -352,9 +390,95 @@ export function PartnersManager({ tenantId, hubName, accent, kind = "placement",
           description={readOnly ? copy.emptyReadonlyDesc : copy.emptyDesc(hubName)}
           accent={accent}
         />
+      ) : viewMode === "table" ? (
+        <div className="gc pt-table-wrap">
+          <table className="pt-table">
+            <thead>
+              <tr>
+                <th>Organization</th>
+                <th>Region</th>
+                <th>{kind === "placement" ? "Fellows" : "Type"}</th>
+                {!readOnly && <th>Status</th>}
+                {!readOnly && <th style={{ textAlign: "right" }}>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {pagePartners.map((partner) => {
+                const initial = partner.name.trim().charAt(0).toUpperCase() || "P";
+                return (
+                  <tr key={partner.id}>
+                    <td>
+                      <div className="pt-table-name">
+                        <span className="pt-table-mark" style={{ ["--pt-accent" as string]: accent }}>
+                          {initial}
+                        </span>
+                        <span>{partner.name}</span>
+                      </div>
+                    </td>
+                    <td>
+                      {partner.region ? partner.region : <span className="pt-muted">Region not set</span>}
+                    </td>
+                    <td>
+                      {kind === "placement"
+                        ? `${partner.fellowCount} fellow${partner.fellowCount === 1 ? "" : "s"}`
+                        : (partner.partnerTypeLabel ?? "Partner")}
+                    </td>
+                    {!readOnly && (
+                      <td>
+                        <span className={statusPillClass(partner.status)}>{partner.statusLabel}</span>
+                      </td>
+                    )}
+                    {!readOnly && (
+                      <td>
+                        <div className="rm-hub-actions" style={{ justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            className="rm-hub-action-btn"
+                            title="Edit"
+                            onClick={() => openEdit(partner)}
+                          >
+                            <IconPencil size={14} />
+                          </button>
+                          {partner.status !== "archived" && (
+                            <button
+                              type="button"
+                              className="rm-hub-action-btn"
+                              title={partner.status === "active" ? "Set inactive" : "Set active"}
+                              onClick={() => toggleActive(partner)}
+                            >
+                              <IconUsers size={14} />
+                            </button>
+                          )}
+                          {partner.status !== "archived" && (
+                            <button
+                              type="button"
+                              className="rm-hub-action-btn"
+                              title="Archive"
+                              onClick={() => archivePartner(partner)}
+                            >
+                              <IconArchive size={14} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="rm-hub-action-btn is-danger"
+                            title="Delete"
+                            onClick={() => deletePartner(partner)}
+                          >
+                            <IconTrash size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="pt-grid">
-          {partners.map((partner) => {
+          {pagePartners.map((partner) => {
             const initial = partner.name.trim().charAt(0).toUpperCase() || "P";
             return (
               <article
@@ -453,6 +577,48 @@ export function PartnersManager({ tenantId, hubName, accent, kind = "placement",
               </article>
             );
           })}
+        </div>
+      )}
+
+      {partners.length > 0 && (
+        <div className="pt-pagination">
+          <div className="pt-pagination-info">
+            Showing {rangeStart}–{rangeEnd} of {partners.length}
+          </div>
+          <div className="pt-pagination-controls">
+            <div style={{ width: 90 }}>
+              <SlideSelect
+                value={String(pageSize)}
+                onChange={(value) => setPageSize(Number(value))}
+                options={[
+                  { value: "10", label: "10" },
+                  { value: "20", label: "20" },
+                  { value: "50", label: "50" },
+                ]}
+              />
+            </div>
+            <button
+              type="button"
+              className="rm-hub-action-btn"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={clampedPage === 0}
+              title="Previous page"
+            >
+              <IconChevronLeft size={15} />
+            </button>
+            <span className="pt-pagination-page">
+              Page {clampedPage + 1} of {pageCount}
+            </span>
+            <button
+              type="button"
+              className="rm-hub-action-btn"
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={clampedPage >= pageCount - 1}
+              title="Next page"
+            >
+              <IconChevronRight size={15} />
+            </button>
+          </div>
         </div>
       )}
 
