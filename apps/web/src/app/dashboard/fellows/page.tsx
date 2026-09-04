@@ -28,6 +28,8 @@ import {
 import { useHomePath } from "@/hooks/use-home-path";
 import { isCountryWorkspaceRole } from "@/lib/home-path";
 import { trpc } from "@/utils/trpc";
+import { CountryFlag } from "@/components/epl/country-flag";
+import { resolveIso2 } from "@/lib/world-countries";
 
 const GENDER_COLORS: Record<string, string> = {
   Female: "#7F77DD",
@@ -202,6 +204,8 @@ function CountryDeploymentList({
   countries: Array<{
     name: string;
     flag: string;
+    countryCode: string;
+    iso2: string;
     fellows: number;
     mcf: number;
     total: number;
@@ -210,11 +214,18 @@ function CountryDeploymentList({
   totalActiveFellows: number;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+        gap: 14,
+      }}
+    >
       {countries.map((country) => {
         const sharePct =
           totalActiveFellows > 0 ? Math.round((country.fellows / totalActiveFellows) * 100) : null;
         const fillPct = sharePct ?? 0;
+        const iso2 = resolveIso2({ countryCode: country.countryCode, iso2: country.iso2, flag: country.flag });
         return (
           <div
             key={country.name}
@@ -226,6 +237,7 @@ function CountryDeploymentList({
               display: "flex",
               flexDirection: "column",
               gap: 16,
+              transition: "transform 0.15s, box-shadow 0.15s",
             }}
           >
             <div
@@ -237,19 +249,19 @@ function CountryDeploymentList({
             >
               <div
                 style={{
-                  width: 44,
-                  height: 44,
+                  width: 48,
+                  height: 48,
                   borderRadius: 12,
                   background: `color-mix(in srgb, ${country.color} 16%, var(--eglass))`,
                   border: `1px solid color-mix(in srgb, ${country.color} 35%, var(--eborder))`,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 22,
+                  overflow: "hidden",
                   flexShrink: 0,
                 }}
               >
-                {country.flag || "🌍"}
+                <CountryFlag iso2={iso2} emoji={country.flag} width={40} height={30} style={{ borderRadius: 8 }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
@@ -356,6 +368,8 @@ export default function GlobalFellowsDashboard() {
       (networkQuery.data?.countries ?? []).map((c) => ({
         name: c.name,
         flag: c.flag,
+        countryCode: c.countryCode,
+        iso2: c.iso2,
         fellows: c.activeFellows,
         mcf: c.mcfFellows,
         total: c.totalNetwork,

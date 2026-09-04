@@ -3722,6 +3722,100 @@ a.rm-primary {
   color: #111827;
 }
 
+/* ── Plain form fields (event scheduling, etc.) ──────────────
+   Used standalone (label + input as siblings, not label-wraps-input),
+   so both need explicit block layout or they collapse onto one line. */
+.rm-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--emuted);
+  font-family: var(--font);
+}
+.rm-input,
+.rm-textarea {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ewhite);
+  font-size: 14px;
+  font-family: var(--font);
+  outline: none;
+  box-sizing: border-box;
+}
+.rm-textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+.rm-input:focus,
+.rm-textarea:focus,
+.rm-select:focus {
+  border-color: rgba(65, 80, 163, 0.65);
+  box-shadow: 0 0 0 3px rgba(65, 80, 163, 0.18);
+}
+.rm-input::placeholder,
+.rm-textarea::placeholder {
+  color: var(--emuted);
+  opacity: 0.7;
+}
+.rm-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid #4150A3;
+  background: #4150A3;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.rm-btn-primary:hover:not(:disabled) {
+  background: #37458e;
+}
+.rm-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.rm-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ewhite);
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.rm-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+.epl-light .rm-input,
+.epl-light .rm-textarea {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #111827;
+}
+.epl-light .rm-btn-secondary {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #111827;
+}
+
 /* ── Nav items ────────────────────────────────────────────── */
 .epl-nav-item {
   display: flex;

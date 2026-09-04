@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { AlumniLayout } from "@/components/epl/alumni-layout";
 import { OrgTree, type OrgTreeNode } from "@/components/epl/org-tree";
@@ -16,7 +15,6 @@ import {
   IconBuildingBank,
   IconLayoutGrid,
   IconBinaryTree,
-  IconPlus,
   IconLoader2,
   IconPhone,
   IconUser,
@@ -202,11 +200,6 @@ export default function ExecutivesPage() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          {canManage && (
-            <Link href={"/dashboard/settings/executives" as never} className="rm-primary" style={{ textDecoration: "none" }}>
-              <IconPlus size={16} /> Manage board
-            </Link>
-          )}
           <div
             style={{
               display: "flex",

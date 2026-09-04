@@ -421,6 +421,8 @@ export const platformRouter = router({
           name: string;
           color: string;
           flag: string;
+          countryCode: string;
+          iso2: string;
           activeFellows: number;
           alumniLeaders: number;
           mcfFellows: number;
@@ -480,6 +482,8 @@ export const platformRouter = router({
           name: meta.name,
           color: meta.color,
           flag: meta.flag,
+          countryCode: meta.countryCode,
+          iso2: meta.iso2,
           activeFellows: stats.active,
           alumniLeaders: cohortStats.totalGraduated,
           mcfFellows: stats.mcf,
@@ -1266,9 +1270,6 @@ export const platformRouter = router({
         countries: 0,
         fellowships: 0,
         leaders: 0,
-        retained: 0,
-        unassigned: 0,
-        retentionRate: null as number | null,
       },
       countries: [] as Array<{
         id: string;
@@ -1279,16 +1280,19 @@ export const platformRouter = router({
         color: string;
         alumni: number;
         liveAlumni: number;
-        retained: number;
       }>,
       programs: [] as Array<{ name: string; alumni: number }>,
       growth: [] as Array<{ year: string; alumni: number; cumulative: number }>,
-      retention: [] as Array<{ name: string; value: number; color: string }>,
+      // How much of the alumni count is backed by an actual Network roster
+      // record vs only known from a completed-cohort headcount — a real
+      // data-quality signal, not a fabricated outcome metric like "retention"
+      // (this platform has no way to confirm what alumni do post-fellowship).
+      rosterCoverage: [] as Array<{ name: string; value: number; color: string }>,
     };
 
     if (tenantIds.length === 0) return empty;
 
-    const [alumniRows, leaderRows, retainedRows] = await Promise.all([
+    const [alumniRows, leaderRows] = await Promise.all([
       db
         .select({
           tenantId: fellows.tenantId,
@@ -1307,25 +1311,12 @@ export const platformRouter = router({
         .from(hubAlumniLeaders)
         .where(and(inArray(hubAlumniLeaders.tenantId, tenantIds), eq(hubAlumniLeaders.status, "active")))
         .groupBy(hubAlumniLeaders.tenantId),
-      db
-        .select({
-          tenantId: fellows.tenantId,
-          count: sql<number>`count(distinct ${fellows.id})::int`,
-        })
-        .from(fellows)
-        .innerJoin(
-          placements,
-          and(eq(placements.fellowId, fellows.id), eq(placements.isCurrent, true)),
-        )
-        .where(and(inArray(fellows.tenantId, tenantIds), eq(fellows.status, "alumni")))
-        .groupBy(fellows.tenantId),
     ]);
 
     const cohortByTenant = await Promise.all(metas.map((meta) => mergedCohortStats(meta.id)));
 
     const liveByTenant = new Map<string, number>();
     const liveByTenantYear = new Map<string, number>();
-    const retainedByTenant = new Map<string, number>();
     const programMap = new Map<string, number>();
     const yearMap = new Map<number, number>();
 
@@ -1340,15 +1331,10 @@ export const platformRouter = router({
       }
     }
 
-    for (const row of retainedRows) {
-      retainedByTenant.set(row.tenantId, row.count);
-    }
-
     const countries = metas.map((meta, index) => {
       const liveAlumni = liveByTenant.get(meta.id) ?? 0;
       const cohortAlumni = cohortByTenant[index]!.reduce((sum, cohort) => sum + cohort.alumniFellows, 0);
       const alumni = Math.max(liveAlumni, cohortAlumni);
-      const retained = retainedByTenant.get(meta.id) ?? 0;
 
       for (const cohort of cohortByTenant[index]!) {
         if (cohort.cohortYear == null || cohort.alumniFellows <= 0) continue;
@@ -1368,7 +1354,6 @@ export const platformRouter = router({
         color: meta.color,
         alumni,
         liveAlumni,
-        retained,
       };
     });
 
@@ -1387,17 +1372,12 @@ export const platformRouter = router({
 
     const alumni = countries.reduce((sum, c) => sum + c.alumni, 0);
     const liveAlumni = countries.reduce((sum, c) => sum + c.liveAlumni, 0);
-    const retained = countries.reduce((sum, c) => sum + c.retained, 0);
-    const unassigned = Math.max(0, liveAlumni - retained);
-    const retentionDenom = liveAlumni > 0 ? liveAlumni : alumni;
-    const retentionRate =
-      retentionDenom > 0 && liveAlumni > 0 ? Math.round((retained / liveAlumni) * 100) : null;
     const leaders = leaderRows.reduce((sum, row) => sum + row.count, 0);
     const countryNetworks = countries.filter((c) => c.alumni > 0).length;
 
-    const retention = [
-      { name: "Retained", value: retained, color: "#2EC27E" },
-      { name: "Unassigned", value: unassigned, color: "rgba(255,255,255,0.25)" },
+    const rosterCoverage = [
+      { name: "On Network roster", value: liveAlumni, color: "#2EC27E" },
+      { name: "Cohort record only", value: Math.max(0, alumni - liveAlumni), color: "rgba(255,255,255,0.25)" },
     ].filter((slice) => slice.value > 0);
 
     return {
@@ -1407,14 +1387,11 @@ export const platformRouter = router({
         countries: countryNetworks,
         fellowships: programs.length,
         leaders,
-        retained,
-        unassigned,
-        retentionRate,
       },
       countries,
       programs,
       growth,
-      retention,
+      rosterCoverage,
     };
   }),
 });

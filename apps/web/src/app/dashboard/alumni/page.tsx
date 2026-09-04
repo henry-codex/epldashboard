@@ -157,12 +157,9 @@ export default function ContinentalAlumniDashboard() {
                   icon: <IconSchool size={18} />,
                 },
                 {
-                  label: "Retention",
-                  value: totals?.retentionRate != null ? `${totals.retentionRate}%` : "—",
-                  hint:
-                    totals?.liveAlumni
-                      ? `${totals.retained} with a retention record`
-                      : "Add alumni to Network to track",
+                  label: "Alumni Leaders",
+                  value: totals?.leaders ?? 0,
+                  hint: "Active on the Alumni Board",
                   color: "#7F77DD",
                   icon: <IconBriefcase size={18} />,
                 },
@@ -250,19 +247,19 @@ export default function ContinentalAlumniDashboard() {
 
               <div className="gc" style={{ padding: 20, display: "flex", flexDirection: "column", minHeight: 280 }}>
                 <h3 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 800, color: "var(--ewhite)" }}>
-                  Post-fellowship retention
+                  Roster coverage
                 </h3>
                 <p style={{ margin: "0 0 16px", fontSize: 12, color: "var(--emuted)" }}>
-                  Alumni on Network with a current retention record.
+                  How many alumni have an individual Network record vs. only a completed-cohort headcount.
                 </p>
-                {data.retention.length === 0 ? (
-                  <EmptyChart message="Retention appears when alumni on Network have a placement record." />
+                {data.rosterCoverage.length === 0 ? (
+                  <EmptyChart message="Coverage appears once hubs have alumni recorded on Network or completed cohorts." />
                 ) : (
                   <div style={{ flex: 1, minHeight: 200 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={data.retention}
+                          data={data.rosterCoverage}
                           cx="50%"
                           cy="46%"
                           innerRadius={58}
@@ -271,7 +268,7 @@ export default function ContinentalAlumniDashboard() {
                           dataKey="value"
                           stroke="none"
                         >
-                          {data.retention.map((entry) => (
+                          {data.rosterCoverage.map((entry) => (
                             <Cell key={entry.name} fill={entry.color} />
                           ))}
                         </Pie>

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -19,6 +20,7 @@ const ConfirmContext = createContext<((options: ConfirmOptions) => Promise<boole
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const { theme } = useTheme();
+  const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [state, setState] = useState<ConfirmState | null>(null);
 
@@ -30,13 +32,24 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const settle = useCallback(
-    (value: boolean) => {
-      state?.resolve(value);
-      setState(null);
-    },
-    [state],
-  );
+  // Functional update so this never closes over a stale `state` reference,
+  // regardless of what re-renders happened between open and click.
+  const settle = useCallback((value: boolean) => {
+    setState((prev) => {
+      prev?.resolve(value);
+      return null;
+    });
+  }, []);
+
+  // A stuck-open dialog would otherwise float on top of whatever page the
+  // user navigates to next — auto-cancel it the moment the route changes.
+  useEffect(() => {
+    setState((prev) => {
+      prev?.resolve(false);
+      return null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   useEffect(() => {
     if (!state) return;

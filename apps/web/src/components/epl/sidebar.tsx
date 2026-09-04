@@ -19,6 +19,7 @@ import {
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { userAvatarUrl } from "@/lib/user-avatar";
+import { useHomePath } from "@/hooks/use-home-path";
 
 type NavItem = {
   key: string;
@@ -52,6 +53,12 @@ type Props = {
 
 export function EPLSidebar({ collapsed, onCollapse, activePage, user, ready = true }: Props) {
   const router = useRouter();
+  const { role } = useHomePath();
+  // The platform-wide "Programs" tab duplicates what Super Admins already
+  // get in Data > By Program / Country Stats, with none of the honesty
+  // fixes applied there — hide it from that role rather than maintain two
+  // versions of the same view.
+  const navItems = role === "super_admin" ? NAV_ITEMS.filter((item) => item.key !== "programs") : NAV_ITEMS;
 
   async function handleSignOut() {
     await authClient.signOut();
@@ -90,7 +97,7 @@ export function EPLSidebar({ collapsed, onCollapse, activePage, user, ready = tr
 
       <nav className="epl-sidebar-nav">
         {!collapsed && <div className="epl-nav-section">Main</div>}
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <Link
             key={item.key}
             href={item.href as never}

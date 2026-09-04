@@ -13,6 +13,7 @@ import {
   IconShieldLock,
   IconSettings,
   IconStar,
+  IconCalendarEvent,
 } from "@tabler/icons-react";
 
 const TITLE_BY_KEY: Record<string, string> = {
@@ -20,6 +21,7 @@ const TITLE_BY_KEY: Record<string, string> = {
   users: "Users & Roles",
   countries: "Regional Hubs",
   executives: "Alumni Board",
+  events: "Events",
   security: "Security",
 };
 
@@ -27,6 +29,7 @@ function activeKeyFromPath(pathname: string) {
   if (pathname.includes("/settings/users")) return "users";
   if (pathname.includes("/settings/countries")) return "countries";
   if (pathname.includes("/settings/executives")) return "executives";
+  if (pathname.includes("/settings/events")) return "events";
   if (pathname.includes("/settings/security")) return "security";
   return "profile";
 }
@@ -49,7 +52,11 @@ export default function SettingsSegmentLayout({
 
   useEffect(() => {
     if (home.isLoading || isPlatformAdmin) return;
-    if (pathname.includes("/settings/countries") || pathname.includes("/settings/executives")) {
+    if (
+      pathname.includes("/settings/countries") ||
+      pathname.includes("/settings/executives") ||
+      pathname.includes("/settings/events")
+    ) {
       router.replace("/dashboard/settings/users");
     }
   }, [home.isLoading, isPlatformAdmin, pathname, router]);
@@ -71,6 +78,12 @@ export default function SettingsSegmentLayout({
         label: "Alumni Board",
         icon: <IconStar size={18} />,
         href: "/dashboard/settings/executives",
+      });
+      items.push({
+        key: "events",
+        label: "Events",
+        icon: <IconCalendarEvent size={18} />,
+        href: "/dashboard/settings/events",
       });
     }
     items.push({
