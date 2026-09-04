@@ -4,8 +4,35 @@ import { db, fellows, hubPartners } from "@epl-fellows-platform/db";
 
 export type HubOrgKind = "placement" | "partner";
 
-function normalizeName(value: string) {
+export function normalizeName(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Only-safe canonicalization for institution names coming from a bulk CSV
+ * import: expands the unambiguous "Min. of X" -> "Ministry of X"
+ * abbreviation, and resolves a bare acronym ("GES") to a fuller name seen
+ * elsewhere in the same import with that acronym in parentheses
+ * ("Ghana Education Service (GES)"). Nothing beyond that is merged — two
+ * genuinely different-looking names with no shared acronym stay separate
+ * rather than being guessed into the same institution.
+ */
+export function canonicalizeInstitutionNames(rawNames: string[]): Map<string, string> {
+  const acronymToFull = new Map<string, string>();
+  for (const raw of rawNames) {
+    const match = raw.match(/^(.+?)\s*\(([A-Z]{2,8})\)$/);
+    if (match) acronymToFull.set(match[2]!, match[1]!.trim());
+  }
+
+  const rawToCanonical = new Map<string, string>();
+  for (const raw of rawNames) {
+    let name = raw.replace(/^min\.?\s+of\s+/i, "Ministry of ").trim();
+    if (/^[A-Z]{2,8}$/.test(name) && acronymToFull.has(name)) {
+      name = acronymToFull.get(name)!;
+    }
+    rawToCanonical.set(raw, name);
+  }
+  return rawToCanonical;
 }
 
 /** Live count of active fellows serving at each placement institution (Network "where they serve"). */

@@ -13,9 +13,11 @@ import {
 } from "@tabler/icons-react";
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
+import { SlideToggle } from "@/components/epl/slide-toggle";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
 import { CohortsTimeline, type CohortTimelineItem } from "@/components/epl/cohorts-timeline";
 import { CohortsBreakdownTable } from "@/components/epl/cohorts-metrics";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
 
 const STATUSES = [
@@ -40,6 +42,18 @@ type CohortForm = {
   startedCount: string;
   graduatedCount: string;
   placedCount: string;
+  toBeRecruitedCount: string;
+  maleCount: string;
+  femaleCount: string;
+  pwdCount: string;
+  idpCount: string;
+  scholarCount: string;
+  attritionRatePercent: string;
+  attritionMale: string;
+  attritionFemale: string;
+  attritionPwd: string;
+  attritionIdp: string;
+  isMcf: boolean;
   notes: string;
 };
 
@@ -53,6 +67,18 @@ const EMPTY_FORM: CohortForm = {
   startedCount: "",
   graduatedCount: "",
   placedCount: "",
+  toBeRecruitedCount: "",
+  maleCount: "",
+  femaleCount: "",
+  pwdCount: "",
+  idpCount: "",
+  scholarCount: "",
+  attritionRatePercent: "",
+  attritionMale: "",
+  attritionFemale: "",
+  attritionPwd: "",
+  attritionIdp: "",
+  isMcf: false,
   notes: "",
 };
 
@@ -65,6 +91,7 @@ type Props = {
 };
 
 export function CohortsManager({ tenantId, hubName, accent, countryId, readOnly = false }: Props) {
+  const confirm = useConfirm();
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<CohortForm>(EMPTY_FORM);
@@ -137,6 +164,18 @@ export function CohortsManager({ tenantId, hubName, accent, countryId, readOnly 
       startedCount: String(row.startedCount ?? row.totalFellows ?? ""),
       graduatedCount: String(row.graduatedCount ?? row.alumniFellows ?? ""),
       placedCount: String(row.placedCount ?? row.placed ?? ""),
+      toBeRecruitedCount: row.toBeRecruitedCount != null ? String(row.toBeRecruitedCount) : "",
+      maleCount: row.maleCount != null ? String(row.maleCount) : "",
+      femaleCount: row.femaleCount != null ? String(row.femaleCount) : "",
+      pwdCount: row.pwdCount != null ? String(row.pwdCount) : "",
+      idpCount: row.idpCount != null ? String(row.idpCount) : "",
+      scholarCount: row.scholarCount != null ? String(row.scholarCount) : "",
+      attritionRatePercent: row.attritionRatePercent != null ? String(row.attritionRatePercent) : "",
+      attritionMale: row.attritionMale != null ? String(row.attritionMale) : "",
+      attritionFemale: row.attritionFemale != null ? String(row.attritionFemale) : "",
+      attritionPwd: row.attritionPwd != null ? String(row.attritionPwd) : "",
+      attritionIdp: row.attritionIdp != null ? String(row.attritionIdp) : "",
+      isMcf: row.isMcf ?? false,
       notes: row.notes ?? "",
     });
     setPanelOpen(true);
@@ -183,6 +222,18 @@ export function CohortsManager({ tenantId, hubName, accent, countryId, readOnly 
       startedCount: parseCountField(form.startedCount),
       graduatedCount: parseCountField(form.graduatedCount),
       placedCount: parseCountField(form.placedCount),
+      toBeRecruitedCount: parseCountField(form.toBeRecruitedCount),
+      maleCount: parseCountField(form.maleCount),
+      femaleCount: parseCountField(form.femaleCount),
+      pwdCount: parseCountField(form.pwdCount),
+      idpCount: parseCountField(form.idpCount),
+      scholarCount: parseCountField(form.scholarCount),
+      attritionRatePercent: parseCountField(form.attritionRatePercent),
+      attritionMale: parseCountField(form.attritionMale),
+      attritionFemale: parseCountField(form.attritionFemale),
+      attritionPwd: parseCountField(form.attritionPwd),
+      attritionIdp: parseCountField(form.attritionIdp),
+      isMcf: form.isMcf,
       notes: form.notes.trim() || undefined,
     };
 
@@ -264,10 +315,14 @@ export function CohortsManager({ tenantId, hubName, accent, countryId, readOnly 
                 onDelete={
                   readOnly
                     ? undefined
-                    : (id) => {
-                        if (window.confirm("Remove this cohort record? Manual stats will be lost.")) {
-                          deleteMutation.mutate({ tenantId, id });
-                        }
+                    : async (id) => {
+                        const ok = await confirm({
+                          title: "Remove cohort record?",
+                          message: "Remove this cohort record? Manual stats will be lost.",
+                          confirmLabel: "Remove",
+                          danger: true,
+                        });
+                        if (ok) deleteMutation.mutate({ tenantId, id });
                       }
                 }
                 deletingId={deleteMutation.isPending ? deleteMutation.variables?.id : undefined}
@@ -400,6 +455,140 @@ export function CohortsManager({ tenantId, hubName, accent, countryId, readOnly 
               />
             </div>
             )}
+            <div className="epl-slide-field">
+              <span>Total to be recruited</span>
+              <input
+                type="number"
+                min={0}
+                value={form.toBeRecruitedCount}
+                onChange={(e) => setForm((prev) => ({ ...prev, toBeRecruitedCount: e.target.value }))}
+                placeholder="e.g. 5"
+              />
+            </div>
+          </section>
+
+          <section className="rm-panel-section">
+            <div className="rm-panel-section-head">Demographics & funding</div>
+            <p className="rm-panel-hint" style={{ margin: "0 0 12px" }}>
+              Matches the country stats sheet — gender split, PWDs, IDPs, and Foundation Scholars for this cohort.
+            </p>
+            <div className="rm-panel-row">
+              <div className="epl-slide-field">
+                <span>Male</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.maleCount}
+                  onChange={(e) => setForm((prev) => ({ ...prev, maleCount: e.target.value }))}
+                />
+              </div>
+              <div className="epl-slide-field">
+                <span>Female</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.femaleCount}
+                  onChange={(e) => setForm((prev) => ({ ...prev, femaleCount: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="rm-panel-row">
+              <div className="epl-slide-field">
+                <span>PWDs</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.pwdCount}
+                  onChange={(e) => setForm((prev) => ({ ...prev, pwdCount: e.target.value }))}
+                />
+              </div>
+              <div className="epl-slide-field">
+                <span>IDPs</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.idpCount}
+                  onChange={(e) => setForm((prev) => ({ ...prev, idpCount: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="epl-slide-field">
+              <span>Foundation Scholars</span>
+              <input
+                type="number"
+                min={0}
+                value={form.scholarCount}
+                onChange={(e) => setForm((prev) => ({ ...prev, scholarCount: e.target.value }))}
+              />
+            </div>
+            <SlideToggle
+              checked={form.isMcf}
+              onChange={(isMcf) => setForm((prev) => ({ ...prev, isMcf }))}
+              label="Mastercard Foundation funded"
+              description="Included in the MCF-funded slice of this hub's stats"
+            />
+          </section>
+
+          <section className="rm-panel-section">
+            <div className="rm-panel-section-head">Attrition</div>
+            <p className="rm-panel-hint" style={{ margin: "0 0 12px" }}>
+              Percent (0–100) who left this cohort, overall and by group.
+            </p>
+            <div className="epl-slide-field">
+              <span>Overall attrition rate (%)</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={form.attritionRatePercent}
+                onChange={(e) => setForm((prev) => ({ ...prev, attritionRatePercent: e.target.value }))}
+                placeholder="e.g. 4"
+              />
+            </div>
+            <div className="rm-panel-row">
+              <div className="epl-slide-field">
+                <span>Male (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.attritionMale}
+                  onChange={(e) => setForm((prev) => ({ ...prev, attritionMale: e.target.value }))}
+                />
+              </div>
+              <div className="epl-slide-field">
+                <span>Female (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.attritionFemale}
+                  onChange={(e) => setForm((prev) => ({ ...prev, attritionFemale: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="rm-panel-row">
+              <div className="epl-slide-field">
+                <span>PWDs (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.attritionPwd}
+                  onChange={(e) => setForm((prev) => ({ ...prev, attritionPwd: e.target.value }))}
+                />
+              </div>
+              <div className="epl-slide-field">
+                <span>IDPs (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.attritionIdp}
+                  onChange={(e) => setForm((prev) => ({ ...prev, attritionIdp: e.target.value }))}
+                />
+              </div>
+            </div>
           </section>
 
           <section className="rm-panel-section">

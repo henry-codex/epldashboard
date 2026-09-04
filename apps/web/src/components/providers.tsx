@@ -7,6 +7,7 @@ import { queryClient } from "@/utils/trpc";
 
 import { ThemeProvider } from "./theme-provider";
 import { Toaster } from "./ui/sonner";
+import { ConfirmProvider } from "./epl/confirm-dialog";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -18,7 +19,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       disableTransitionOnChange
     >
       <QueryClientProvider client={queryClient}>
-        {children}
+        <ConfirmProvider>
+          {children}
+        </ConfirmProvider>
         <ReactQueryDevtools />
       </QueryClientProvider>
       <Toaster richColors />

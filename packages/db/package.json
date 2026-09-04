@@ -14,7 +14,8 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx src/seed.ts"
+    "db:seed": "tsx src/seed.ts",
+    "import:country-data": "tsx src/scripts/import-country-data.ts"
   },
   "dependencies": {
     "@epl-fellows-platform/env": "workspace:*",

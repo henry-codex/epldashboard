@@ -26,20 +26,29 @@ import {
   IconDotsVertical,
   IconChevronLeft,
   IconChevronRight,
+  IconStack2,
 } from "@tabler/icons-react";
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
 import { ProgramSelect } from "@/components/epl/program-select";
 import { SlideToggle } from "@/components/epl/slide-toggle";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
 import { useTheme } from "@/hooks/use-theme";
 
 const PAGE_SIZE = 20;
 
+// "current" is a virtual bucket (not a real fellows.status value) meaning
+// active + incoming — the people presently in the program, whether serving
+// or about to start. It's the default lens for the working roster; Alumni
+// stay fully in the system and one filter click away, just not mixed into
+// the default view.
 const STATUSES = [
+  { value: "current", label: "Current (Active + Incoming)" },
   { value: "active", label: "Active" },
   { value: "alumni", label: "Alumni" },
+  { value: "incoming", label: "Incoming" },
   { value: "inactive", label: "Inactive" },
 ] as const;
 
@@ -66,13 +75,13 @@ type FellowRow = {
   id: string;
   firstName: string;
   lastName: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   nationality: string | null;
   gender: string | null;
-  cohortYear: number;
+  cohortYear: number | null;
   program: string;
-  status: "active" | "alumni" | "inactive";
+  status: "incoming" | "active" | "alumni" | "inactive";
   isMcf: boolean;
   customFields: Record<string, unknown>;
   externalId: string | null;
@@ -112,9 +121,13 @@ type FellowForm = {
   nationality: string;
   gender: string;
   hasDisability: boolean;
+  isIdp: boolean;
+  isMcfScholar: boolean;
+  qualification: string;
+  university: string;
   cohortYear: string;
   program: string;
-  status: "active" | "alumni" | "inactive";
+  status: "incoming" | "active" | "alumni" | "inactive";
   isMcf: boolean;
   externalId: string;
   serviceOrganization: string;
@@ -143,6 +156,10 @@ const EMPTY_FELLOW: FellowForm = {
   nationality: "",
   gender: "",
   hasDisability: false,
+  isIdp: false,
+  isMcfScholar: false,
+  qualification: "",
+  university: "",
   cohortYear: "",
   program: "",
   status: "active",
@@ -300,8 +317,14 @@ function FellowActionsMenu({
 }
 
 export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: Props) {
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | "active" | "alumni" | "inactive">("active");
+  // Default to "current" (active + incoming) — the roster a manager is
+  // actively working. Alumni are real records too, just not the default
+  // lens on a page titled "Network"; switch the filter to see them.
+  const [statusFilter, setStatusFilter] = useState<
+    "" | "current" | "incoming" | "active" | "alumni" | "inactive"
+  >("current");
   const [yearFilter, setYearFilter] = useState("");
   const [sortOrder, setSortOrder] = useState<"name_asc" | "name_desc" | "newest">("name_asc");
   const [page, setPage] = useState(1);
@@ -315,22 +338,25 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
   const [placementForm, setPlacementForm] = useState<PlacementForm>(EMPTY_PLACEMENT);
   const [hadPlacement, setHadPlacement] = useState(false);
   const [fieldForm, setFieldForm] = useState<FieldForm>(EMPTY_FIELD);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setPage(1);
     setActionMenuId(null);
+    setSelectedIds(new Set());
   }, [search, statusFilter, yearFilter, sortOrder]);
 
   useEffect(() => {
     setActionMenuId(null);
+    setSelectedIds(new Set());
   }, [page]);
 
   const listQuery = useQuery(
     trpc.fellows.list.queryOptions({
       tenantId,
       search: search.trim() || undefined,
-      status: statusFilter || undefined,
+      status: statusFilter === "current" ? ["active", "incoming"] : statusFilter || undefined,
       cohortYear: yearFilter ? Number.parseInt(yearFilter, 10) : undefined,
       sort: sortOrder,
       limit: PAGE_SIZE,
@@ -394,6 +420,8 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       queryClient.invalidateQueries({ queryKey: trpc.fellows.aggregates.queryKey({ tenantId }) }),
       queryClient.invalidateQueries({ queryKey: trpc.partners.list.queryKey({ tenantId, kind: "placement" }) }),
       queryClient.invalidateQueries({ queryKey: trpc.partners.aggregates.queryKey({ tenantId, kind: "placement" }) }),
+      queryClient.invalidateQueries({ queryKey: trpc.cohorts.list.queryKey({ tenantId }) }),
+      queryClient.invalidateQueries({ queryKey: trpc.cohorts.aggregates.queryKey({ tenantId }) }),
       queryClient.invalidateQueries({
         queryKey: trpc.fellows.placement.getCurrent.queryKey({
           tenantId,
@@ -447,10 +475,36 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
     }),
   );
 
+  const bulkTransitionMutation = useMutation(
+    trpc.fellows.bulkTransitionStatus.mutationOptions({
+      onSuccess: async (result, variables) => {
+        toast.success(`Marked ${result.updated} fellow(s) as ${variables.status}`);
+        setSelectedIds(new Set());
+        await invalidate();
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  function handleBulkTransition(status: "active" | "incoming" | "alumni" | "inactive") {
+    if (selectedIds.size === 0) return;
+    bulkTransitionMutation.mutate({ tenantId, ids: Array.from(selectedIds), status });
+  }
+
   const importMutation = useMutation(
     trpc.fellows.importCsv.mutationOptions({
       onSuccess: async (result) => {
-        toast.success(`Import complete — ${result.created} created, ${result.updated} updated`);
+        const partnerNote =
+          result.partnersCreated || result.partnersUpdated
+            ? ` · ${result.partnersCreated} institution(s) added`
+            : "";
+        const cohortNote =
+          result.cohortsCreated || result.cohortsUpdated
+            ? ` · ${result.cohortsCreated} cohort(s) created, ${result.cohortsUpdated} updated`
+            : "";
+        toast.success(
+          `Import complete — ${result.created} created, ${result.updated} updated${partnerNote}${cohortNote}`,
+        );
         if (result.errors.length) {
           toast.error(`${result.errors.length} row(s) had errors`);
         }
@@ -459,6 +513,41 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       onError: (err) => toast.error(err.message),
     }),
   );
+
+  const bulkDeleteMutation = useMutation(
+    trpc.fellows.bulkDelete.mutationOptions({
+      onSuccess: async (result) => {
+        toast.success(
+          `Cleared ${result.fellowsDeleted} fellow(s), ${result.placementsDeleted} placement(s)` +
+            (result.institutionsDeleted ? `, ${result.institutionsDeleted} institution(s)` : "") +
+            (result.cohortsDeleted ? `, ${result.cohortsDeleted} cohort(s)` : ""),
+        );
+        await invalidate();
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  async function handleClearNetwork() {
+    const typed = window.prompt(
+      `This permanently deletes every fellow, placement and check-in in ${hubName}.\n\n` +
+        `Type the hub name "${hubName}" to confirm:`,
+    );
+    if (typed == null) return;
+    const alsoWipe = await confirm({
+      title: "Also remove imported records?",
+      message: "Also remove the placement institutions and cohort records created by imports?",
+      confirmLabel: "Remove them too",
+      cancelLabel: "Keep them",
+      danger: true,
+    });
+    bulkDeleteMutation.mutate({
+      tenantId,
+      confirmHubName: typed,
+      includeInstitutions: alsoWipe,
+      includeCohorts: alsoWipe,
+    });
+  }
 
   const exportQuery = useQuery({
     ...trpc.fellows.exportCsv.queryOptions({ tenantId }),
@@ -507,10 +596,10 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
         enabled: true,
         institution: row.institution,
         department: row.department ?? "",
-        roleTitle: row.roleTitle,
+        roleTitle: row.roleTitle ?? "",
         country: row.country,
-        city: row.city,
-        startDate: row.startDate,
+        city: row.city ?? "",
+        startDate: row.startDate ?? "",
         endDate: row.endDate ?? "",
       });
     } else if (!placementQuery.isFetching) {
@@ -558,12 +647,16 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
     setFellowForm({
       firstName: row.firstName,
       lastName: row.lastName,
-      email: row.email,
+      email: row.email ?? "",
       phone: row.phone ?? "",
       nationality: row.nationality ?? "",
       gender: row.gender ?? "",
       hasDisability: row.customFields.has_disability === true || row.customFields.has_disability === "true",
-      cohortYear: String(row.cohortYear),
+      isIdp: row.customFields.is_idp === true || row.customFields.is_idp === "true",
+      isMcfScholar: row.customFields.is_mcf_scholar === true || row.customFields.is_mcf_scholar === "true",
+      qualification: row.customFields.qualification != null ? String(row.customFields.qualification) : "",
+      university: row.customFields.university != null ? String(row.customFields.university) : "",
+      cohortYear: row.cohortYear != null ? String(row.cohortYear) : "",
       program: row.program,
       status: row.status,
       isMcf: row.isMcf,
@@ -644,6 +737,10 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       nationality: fellowForm.nationality.trim() || undefined,
       gender: fellowForm.gender.trim() || undefined,
       hasDisability: fellowForm.hasDisability,
+      isIdp: fellowForm.isIdp,
+      isMcfScholar: fellowForm.isMcfScholar,
+      qualification: fellowForm.qualification.trim() || undefined,
+      university: fellowForm.university.trim() || undefined,
       serviceOrganization: fellowForm.serviceOrganization.trim() || null,
       serviceRole: fellowForm.serviceRole.trim() || null,
       serviceCity: fellowForm.serviceCity.trim() || null,
@@ -679,16 +776,22 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
     }
   }
 
-  function transitionFellow(row: FellowRow, status: FellowRow["status"]) {
+  async function transitionFellow(row: FellowRow, status: FellowRow["status"]) {
     setActionMenuId(null);
     const label = status === "alumni" ? "alumni" : status === "inactive" ? "inactive" : "active";
-    if (!window.confirm(`Mark ${row.firstName} ${row.lastName} as ${label}?`)) return;
+    const ok = await confirm({
+      title: "Change fellow status?",
+      message: `Mark ${row.firstName} ${row.lastName} as ${label}?`,
+      confirmLabel: "Confirm",
+    });
+    if (!ok) return;
     transitionMutation.mutate({ tenantId, id: row.id, status });
   }
 
   function statusPillClass(status: FellowRow["status"]) {
     if (status === "active") return "nm-status-pill is-active";
     if (status === "alumni") return "nm-status-pill is-alumni";
+    if (status === "incoming") return "nm-status-pill is-incoming";
     return "nm-status-pill is-inactive";
   }
 
@@ -835,6 +938,16 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
             <button type="button" className="rm-ghost" onClick={() => setFieldsPanel(true)}>
               <IconColumns size={16} /> Fields
             </button>
+            <button
+              type="button"
+              className="rm-ghost nm-danger-action"
+              onClick={handleClearNetwork}
+              disabled={bulkDeleteMutation.isPending || totalFellows === 0}
+              title="Delete every fellow, placement and check-in in this hub"
+            >
+              {bulkDeleteMutation.isPending ? <IconLoader2 size={16} className="animate-spin" /> : <IconTrash size={16} />}
+              Clear all
+            </button>
           </div>
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleImportFile} />
         </div>
@@ -889,16 +1002,56 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
         </div>
       </div>
 
+      {!readOnly && selectedIds.size > 0 && (
+        <div
+          className="gc"
+          style={{
+            padding: "10px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+            border: `1px solid ${accent}40`,
+            background: `${accent}0d`,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
+            {selectedIds.size} selected
+          </span>
+          <span style={{ fontSize: 12, color: "var(--emuted)", fontFamily: "var(--font)" }}>Set status to:</span>
+          {(["active", "incoming", "alumni", "inactive"] as const).map((status) => (
+            <button
+              key={status}
+              type="button"
+              className="nm-row-action"
+              onClick={() => handleBulkTransition(status)}
+              disabled={bulkTransitionMutation.isPending}
+            >
+              {status}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="rm-ghost"
+            style={{ marginLeft: "auto" }}
+            onClick={() => setSelectedIds(new Set())}
+            disabled={bulkTransitionMutation.isPending}
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {listQuery.isLoading ? (
         <div className="rm-state">Loading roster…</div>
       ) : listQuery.isError ? (
         <div className="rm-state rm-state-error">{listQuery.error.message}</div>
       ) : fellows.length === 0 ? (
         <CountrySectionEmpty
-          title={statusFilter === "active" ? "No active fellows yet" : "No fellows match this filter"}
+          title={statusFilter === "" || statusFilter === "current" ? "No fellows yet" : "No fellows match this filter"}
           description={
-            statusFilter === "active"
-              ? `Add active program fellows manually or import a CSV to start building ${hubName}'s network.`
+            statusFilter === "" || statusFilter === "current"
+              ? `Add fellows manually or import a CSV to start building ${hubName}'s network.`
               : "Try a different status filter or search term."
           }
           accent={accent}
@@ -908,6 +1061,24 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "var(--font)" }}>
             <thead>
               <tr style={{ textAlign: "left", color: "var(--emuted)", borderBottom: "1px solid var(--eborder)" }}>
+                {!readOnly && (
+                  <th style={{ padding: "10px 12px", width: 36 }}>
+                    <input
+                      type="checkbox"
+                      checked={fellows.length > 0 && fellows.every((row) => selectedIds.has(row.id))}
+                      onChange={(e) => {
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          for (const row of fellows) {
+                            if (e.target.checked) next.add(row.id);
+                            else next.delete(row.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                  </th>
+                )}
                 <th style={{ padding: "10px 12px", width: 48 }}>#</th>
                 <th style={{ padding: "10px 12px" }}>Name</th>
                 <th style={{ padding: "10px 12px" }}>Email</th>
@@ -916,7 +1087,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                 <th style={{ padding: "10px 12px" }}>Cohort</th>
                 <th style={{ padding: "10px 12px" }}>Program</th>
                 <th style={{ padding: "10px 12px" }}>Gender</th>
-                <th style={{ padding: "10px 12px" }}>MCF</th>
+                <th style={{ padding: "10px 12px" }}>MCF Scholar</th>
                 {fieldDefs.slice(0, 2).map((f) => (
                   <th key={f.id} style={{ padding: "10px 12px" }}>{f.label}</th>
                 ))}
@@ -926,19 +1097,35 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
             <tbody>
               {fellows.map((row, index) => (
                 <tr key={row.id} style={{ borderBottom: "1px solid var(--eborder)", color: "var(--ewhite)" }}>
+                  {!readOnly && (
+                    <td style={{ padding: "10px 12px" }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(row.id)}
+                        onChange={(e) => {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(row.id);
+                            else next.delete(row.id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
+                  )}
                   <td style={{ padding: "10px 12px", color: "var(--emuted)", fontVariantNumeric: "tabular-nums" }}>
                     {rangeStart + index}
                   </td>
                   <td style={{ padding: "10px 12px", fontWeight: 600 }}>{row.firstName} {row.lastName}</td>
-                  <td style={{ padding: "10px 12px" }}>{row.email}</td>
+                  <td style={{ padding: "10px 12px" }}>{row.email ?? "—"}</td>
                   <td style={{ padding: "10px 12px", color: "var(--emuted)" }}>{row.phone ?? "—"}</td>
                   <td style={{ padding: "10px 12px" }}>
                     <span className={statusPillClass(row.status)}>{row.status}</span>
                   </td>
-                  <td style={{ padding: "10px 12px" }}>{row.cohortYear}</td>
+                  <td style={{ padding: "10px 12px" }}>{row.cohortYear ?? "—"}</td>
                   <td style={{ padding: "10px 12px" }}>{row.program}</td>
                   <td style={{ padding: "10px 12px", color: "var(--emuted)" }}>{row.gender ?? "—"}</td>
-                  <td style={{ padding: "10px 12px" }}>{row.isMcf ? "Yes" : "—"}</td>
+                  <td style={{ padding: "10px 12px" }}>{row.customFields.is_mcf_scholar === true ? "Yes" : "—"}</td>
                   {fieldDefs.slice(0, 2).map((f) => (
                     <td key={f.id} style={{ padding: "10px 12px" }}>{String(row.customFields[f.key] ?? "—")}</td>
                   ))}
@@ -979,10 +1166,14 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                             label: "Delete",
                             icon: <IconTrash size={14} />,
                             danger: true,
-                            onSelect: () => {
-                              if (window.confirm(`Remove ${row.firstName} ${row.lastName}?`)) {
-                                deleteMutation.mutate({ tenantId, id: row.id });
-                              }
+                            onSelect: async () => {
+                              const ok = await confirm({
+                                title: "Delete fellow?",
+                                message: `Remove ${row.firstName} ${row.lastName}?`,
+                                confirmLabel: "Remove",
+                                danger: true,
+                              });
+                              if (ok) deleteMutation.mutate({ tenantId, id: row.id });
                             },
                           });
                         }
@@ -1094,7 +1285,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                 </div>
                 <div>
                   <span className="nm-view-label">Email</span>
-                  <p className="nm-view-value">{viewingFellow.email}</p>
+                  <p className="nm-view-value">{viewingFellow.email ?? "—"}</p>
                 </div>
                 <div>
                   <span className="nm-view-label">Phone</span>
@@ -1105,8 +1296,8 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                   <p className="nm-view-value">{viewingFellow.gender ?? "—"}</p>
                 </div>
                 <div>
-                  <span className="nm-view-label">MCF</span>
-                  <p className="nm-view-value">{viewingFellow.isMcf ? "Yes" : "No"}</p>
+                  <span className="nm-view-label">MCF Scholar</span>
+                  <p className="nm-view-value">{viewingFellow.customFields.is_mcf_scholar === true ? "Yes" : "No"}</p>
                 </div>
               </div>
             </section>
@@ -1117,11 +1308,38 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
               <div className="nm-view-grid">
                 <div>
                   <span className="nm-view-label">Cohort year</span>
-                  <p className="nm-view-value">{viewingFellow.cohortYear}</p>
+                  <p className="nm-view-value">{viewingFellow.cohortYear ?? "—"}</p>
                 </div>
                 <div>
                   <span className="nm-view-label">Program</span>
                   <p className="nm-view-value">{viewingFellow.program}</p>
+                </div>
+              </div>
+            </section>
+            <section className="rm-panel-section">
+              <div className="rm-panel-section-head">
+                <IconStack2 size={16} /> Demographics & background
+              </div>
+              <div className="nm-view-grid">
+                <div>
+                  <span className="nm-view-label">PWD</span>
+                  <p className="nm-view-value">{viewingFellow.customFields.has_disability === true ? "Yes" : viewingFellow.customFields.has_disability === false ? "No" : "—"}</p>
+                </div>
+                <div>
+                  <span className="nm-view-label">IDP</span>
+                  <p className="nm-view-value">{viewingFellow.customFields.is_idp === true ? "Yes" : viewingFellow.customFields.is_idp === false ? "No" : "—"}</p>
+                </div>
+                <div>
+                  <span className="nm-view-label">Mastercard Scholar</span>
+                  <p className="nm-view-value">{viewingFellow.customFields.is_mcf_scholar === true ? "Yes" : viewingFellow.customFields.is_mcf_scholar === false ? "No" : "—"}</p>
+                </div>
+                <div>
+                  <span className="nm-view-label">Qualification</span>
+                  <p className="nm-view-value">{String(viewingFellow.customFields.qualification ?? "—")}</p>
+                </div>
+                <div>
+                  <span className="nm-view-label">University / College</span>
+                  <p className="nm-view-value">{String(viewingFellow.customFields.university ?? "—")}</p>
                 </div>
               </div>
             </section>
@@ -1423,6 +1641,36 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
               label="Person with disability"
               description="Included in aggregate reporting for this hub"
             />
+            <SlideToggle
+              checked={fellowForm.isIdp}
+              onChange={(isIdp) => setFellowForm((p) => ({ ...p, isIdp }))}
+              label="Internally displaced person (IDP)"
+              description="Included in aggregate reporting for this hub"
+            />
+            <SlideToggle
+              checked={fellowForm.isMcfScholar}
+              onChange={(isMcfScholar) => setFellowForm((p) => ({ ...p, isMcfScholar }))}
+              label="Mastercard Foundation Scholar"
+              description="Distinct from general MCF program membership below"
+            />
+            <div className="rm-panel-row">
+              <div className="epl-slide-field">
+                <span>Qualification</span>
+                <input
+                  value={fellowForm.qualification}
+                  onChange={(e) => setFellowForm((p) => ({ ...p, qualification: e.target.value }))}
+                  placeholder="e.g. BSc in Public Health"
+                />
+              </div>
+              <div className="epl-slide-field">
+                <span>University / College</span>
+                <input
+                  value={fellowForm.university}
+                  onChange={(e) => setFellowForm((p) => ({ ...p, university: e.target.value }))}
+                  placeholder="e.g. Njala University"
+                />
+              </div>
+            </div>
           </section>
 
           <section className="rm-panel-section">
@@ -1578,10 +1826,14 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                     <button
                       type="button"
                       className="rm-ghost"
-                      onClick={() => {
-                        if (window.confirm(`Remove field "${field.label}"?`)) {
-                          fieldDeleteMutation.mutate({ tenantId, id: field.id });
-                        }
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: "Remove field?",
+                          message: `Remove field "${field.label}"?`,
+                          confirmLabel: "Remove",
+                          danger: true,
+                        });
+                        if (ok) fieldDeleteMutation.mutate({ tenantId, id: field.id });
                       }}
                     >
                       <IconTrash size={15} />

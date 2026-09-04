@@ -24,6 +24,18 @@ export type MergedCohortStats = {
   startedCount: number | null;
   graduatedCount: number | null;
   placedCount: number | null;
+  toBeRecruitedCount: number | null;
+  maleCount: number | null;
+  femaleCount: number | null;
+  pwdCount: number | null;
+  idpCount: number | null;
+  scholarCount: number | null;
+  attritionRatePercent: number | null;
+  attritionMale: number | null;
+  attritionFemale: number | null;
+  attritionPwd: number | null;
+  attritionIdp: number | null;
+  isMcf: boolean;
   totalFellows: number;
   activeFellows: number;
   alumniFellows: number;
@@ -88,6 +100,10 @@ export async function liveCohortStatsByYear(tenantId: string): Promise<Map<numbe
 
   const map = new Map<number, LiveCohortYearStats>();
   for (const row of rows) {
+    // Fellows with no cohortYear on file (e.g. imported without one) can't
+    // be attributed to a year-based cohort bucket; they still count in the
+    // overall status aggregates, just not here.
+    if (row.year == null) continue;
     map.set(row.year, {
       year: row.year,
       totalFellows: row.totalFellows,
@@ -112,6 +128,18 @@ function mergeCohortRow(
     startedCount: number | null;
     graduatedCount: number | null;
     placedCount: number | null;
+    toBeRecruitedCount: number | null;
+    maleCount: number | null;
+    femaleCount: number | null;
+    pwdCount: number | null;
+    idpCount: number | null;
+    scholarCount: number | null;
+    attritionRatePercent: number | null;
+    attritionMale: number | null;
+    attritionFemale: number | null;
+    attritionPwd: number | null;
+    attritionIdp: number | null;
+    isMcf: boolean | null;
     notes: string | null;
     sortOrder: number | null;
   },
@@ -152,10 +180,30 @@ function mergeCohortRow(
     timelineProgress: timeline.timelineProgress,
     daysRemaining: timeline.daysRemaining,
     status,
-    statusLabel: inProgress ? "In progress" : "Completed",
+    // A cohort with a planned headcount but nobody enrolled yet (no active
+    // or alumni fellows) hasn't actually started — "In progress" overstates
+    // it. Once anyone is active or has graduated, it's genuinely underway.
+    statusLabel: inProgress
+      ? activeFellows === 0 && alumniFellows === 0 && totalFellows > 0
+        ? "Incoming"
+        : "In progress"
+      : "Completed",
     startedCount: row.startedCount,
     graduatedCount: row.graduatedCount,
     placedCount: row.placedCount,
+    // These have no "live" equivalent to fall back to — always manual entry.
+    toBeRecruitedCount: row.toBeRecruitedCount,
+    maleCount: row.maleCount,
+    femaleCount: row.femaleCount,
+    pwdCount: row.pwdCount,
+    idpCount: row.idpCount,
+    scholarCount: row.scholarCount,
+    attritionRatePercent: row.attritionRatePercent,
+    attritionMale: row.attritionMale,
+    attritionFemale: row.attritionFemale,
+    attritionPwd: row.attritionPwd,
+    attritionIdp: row.attritionIdp,
+    isMcf: row.isMcf ?? false,
     totalFellows,
     activeFellows,
     alumniFellows,
@@ -203,6 +251,18 @@ export async function mergedCohortStats(tenantId: string): Promise<MergedCohortS
       startedCount: null,
       graduatedCount: null,
       placedCount: null,
+      toBeRecruitedCount: null,
+      maleCount: null,
+      femaleCount: null,
+      pwdCount: null,
+      idpCount: null,
+      scholarCount: null,
+      attritionRatePercent: null,
+      attritionMale: null,
+      attritionFemale: null,
+      attritionPwd: null,
+      attritionIdp: null,
+      isMcf: false,
       totalFellows: live.totalFellows,
       activeFellows: live.activeFellows,
       alumniFellows: live.alumniFellows,

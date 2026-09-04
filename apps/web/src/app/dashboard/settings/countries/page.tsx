@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { queryClient, trpc } from "@/utils/trpc";
 import { SlidePanel } from "@/components/epl/slide-panel";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { CountryPicker } from "@/components/epl/country-picker";
 import type { WorldCountry } from "@/lib/world-countries";
 import { flagImageUrl, resolveIso2 } from "@/lib/world-countries";
@@ -19,6 +20,9 @@ import {
   IconUsers,
   IconCheck,
   IconChevronRight,
+  IconPencil,
+  IconTrash,
+  IconRotateClockwise,
 } from "@tabler/icons-react";
 
 const PRESET_COLORS = ["#4150A3", "#2EC27E", "#E05C5C", "#F4BD12", "#3B8BEB", "#8E44AD"];
@@ -57,11 +61,28 @@ function HubFlag({
   );
 }
 
+type HubRow = {
+  id: string;
+  name: string;
+  slug: string;
+  countryCode: string;
+  flag: string;
+  iso2: string;
+  color: string;
+  isActive: boolean;
+  memberCount: number;
+};
+
 export default function CountriesSettingsPage() {
+  const router = useRouter();
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [selected, setSelected] = useState<WorldCountry | null>(null);
   const [form, setForm] = useState(EMPTY_ADMIN);
+  const [editing, setEditing] = useState<HubRow | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState("#4150A3");
 
   const listQuery = useQuery(trpc.tenants.list.queryOptions());
 
@@ -87,6 +108,56 @@ export default function CountriesSettingsPage() {
       onError: (err) => toast.error(err.message),
     }),
   );
+
+  const updateMutation = useMutation(
+    trpc.tenants.update.mutationOptions({
+      onSuccess: (data) => {
+        toast.success(`${data.name} updated`);
+        void queryClient.invalidateQueries({ queryKey: trpc.tenants.list.queryKey() });
+        setEditing(null);
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  const setActiveMutation = useMutation(
+    trpc.tenants.setActive.mutationOptions({
+      onSuccess: (data) => {
+        toast.success(data.isActive ? `${data.name} reactivated` : `${data.name} deactivated — its data is now hidden from network-wide stats`);
+        void queryClient.invalidateQueries({ queryKey: trpc.tenants.list.queryKey() });
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  const openEdit = useCallback((hub: HubRow) => {
+    setEditing(hub);
+    setEditName(hub.name);
+    setEditColor(hub.color);
+  }, []);
+
+  function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    if (!editName.trim()) {
+      toast.error("Hub name is required");
+      return;
+    }
+    updateMutation.mutate({ id: editing.id, name: editName.trim(), color: editColor });
+  }
+
+  async function handleToggleActive(hub: HubRow) {
+    const ok = await confirm({
+      title: hub.isActive ? "Deactivate hub?" : "Reactivate hub?",
+      message: hub.isActive
+        ? `Deactivate ${hub.name}? Its fellows, cohorts, and stats will disappear from every network-wide view until it's reactivated.`
+        : `Reactivate ${hub.name}? Its data will reappear across network-wide views.`,
+      confirmLabel: hub.isActive ? "Deactivate" : "Reactivate",
+      danger: hub.isActive,
+    });
+    if (!ok) return;
+    setActiveMutation.mutate({ id: hub.id, isActive: !hub.isActive });
+  }
 
   const countries = useMemo(() => {
     const rows = listQuery.data ?? [];
@@ -217,13 +288,20 @@ export default function CountriesSettingsPage() {
               <span>ISO</span>
               <span>Users</span>
               <span>Status</span>
+              <span>Actions</span>
               <span />
             </div>
             {countries.map((c) => (
-              <Link
+              <div
                 key={c.id}
-                href={`/dashboard/countries/${c.id}` as never}
                 className="rm-hub-row"
+                role="link"
+                tabIndex={0}
+                onClick={() => router.push(`/dashboard/countries/${c.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") router.push(`/dashboard/countries/${c.id}`);
+                }}
+                style={{ cursor: "pointer" }}
               >
                 <div className="rm-hub-country">
                   <div className="rm-hub-flag" style={{ boxShadow: `0 0 0 2px ${c.color}40` }}>
@@ -247,8 +325,27 @@ export default function CountriesSettingsPage() {
                   <i style={{ background: c.isActive ? "#2EC27E" : "var(--emuted)" }} />
                   {c.isActive ? "Active" : "Inactive"}
                 </span>
+                <div className="rm-hub-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="rm-hub-action-btn"
+                    title="Edit hub"
+                    onClick={() => openEdit(c)}
+                  >
+                    <IconPencil size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className={`rm-hub-action-btn${c.isActive ? " is-danger" : ""}`}
+                    title={c.isActive ? "Deactivate hub" : "Reactivate hub"}
+                    onClick={() => handleToggleActive(c)}
+                    disabled={setActiveMutation.isPending}
+                  >
+                    {c.isActive ? <IconTrash size={15} /> : <IconRotateClockwise size={15} />}
+                  </button>
+                </div>
                 <IconChevronRight size={16} className="rm-hub-chevron" />
-              </Link>
+              </div>
             ))}
           </div>
         )}
@@ -376,6 +473,70 @@ export default function CountriesSettingsPage() {
             </label>
           </div>
         </form>
+      </SlidePanel>
+
+      <SlidePanel
+        open={editing != null}
+        onClose={() => setEditing(null)}
+        title={editing ? `Edit ${editing.name}` : "Edit hub"}
+        description="Change the hub name or its accent color — used on the map, charts, and country pages."
+        width={440}
+        footer={
+          <div className="epl-slide-actions">
+            <button
+              type="button"
+              className="rm-ghost"
+              onClick={() => setEditing(null)}
+              disabled={updateMutation.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="edit-hub-form"
+              className="rm-primary"
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending ? <IconLoader2 size={15} className="animate-spin" /> : <IconCheck size={15} />}
+              Save changes
+            </button>
+          </div>
+        }
+      >
+        {editing && (
+          <form id="edit-hub-form" className="rm-panel-form" onSubmit={handleEditSubmit}>
+            <label className="epl-slide-field">
+              <span>Hub name</span>
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} required />
+            </label>
+
+            <div className="epl-slide-field">
+              <span>Accent color</span>
+              <p className="rm-panel-hint" style={{ marginTop: 0 }}>
+                Saved on the hub and used on map, charts, and country pages.
+              </p>
+              <div className="rm-colors">
+                {PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`rm-swatch${editColor === c ? " is-active" : ""}`}
+                    style={{ background: c }}
+                    onClick={() => setEditColor(c)}
+                    aria-label={c}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={editColor}
+                  onChange={(e) => setEditColor(e.target.value)}
+                  className="rm-color-input"
+                />
+              </div>
+              <div className="rm-color-preview" style={{ background: editColor }} />
+            </div>
+          </form>
+        )}
       </SlidePanel>
     </div>
   );

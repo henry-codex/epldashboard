@@ -21,7 +21,6 @@ type MapCountry = {
   activeFellows: number;
   alumniLeaders: number;
   institutions: number;
-  placementRate: number | null;
   numericId: number | null;
 };
 
@@ -57,7 +56,6 @@ export default function MapPage() {
         activeFellows: c.activeFellows,
         alumniLeaders: c.alumniLeaders,
         institutions: c.institutions,
-        placementRate: c.placementRate,
         numericId: iso2ToNumeric(iso2),
       };
     });
@@ -276,10 +274,10 @@ export default function MapPage() {
                               fontFamily: "var(--font)",
                             }}
                           >
-                            {c.placementRate != null ? `${c.placementRate}%` : "—"}
+                            {c.alumniLeaders}
                           </div>
                           <div style={{ fontSize: 9, color: "var(--emuted)", fontFamily: "var(--font)" }}>
-                            Retention
+                            Alumni
                           </div>
                         </div>
                         <div>

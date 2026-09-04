@@ -11,9 +11,9 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  BarChart,
-  Bar,
   Cell,
+  PieChart,
+  Pie,
 } from "recharts";
 import {
   IconTrophy,
@@ -23,6 +23,7 @@ import {
   IconTrendingUp,
   IconLoader2,
   IconAward,
+  IconAccessible,
 } from "@tabler/icons-react";
 import { trpc } from "@/utils/trpc";
 import { flagImageUrl, resolveIso2 } from "@/lib/world-countries";
@@ -32,8 +33,11 @@ const chartTooltipStyle = {
   backdropFilter: "blur(12px)",
   border: "1px solid var(--gborder)",
   borderRadius: 12,
-  color: "var(--ewhite)",
+  color: "#FFFFFF",
 };
+
+const chartTooltipItemStyle = { color: "#FFFFFF" };
+const chartTooltipLabelStyle = { color: "#FFFFFF", fontWeight: 700 };
 
 const GENDER_COLORS: Record<string, string> = {
   Female: "#7F77DD",
@@ -49,16 +53,48 @@ function formatRate(value: number | null | undefined, fallback = "—") {
 export default function ImpactReportPage() {
   const overviewQuery = useQuery(trpc.platform.overview.queryOptions());
   const networkQuery = useQuery(trpc.platform.network.queryOptions());
+  const summaryQuery = useQuery(trpc.platform.countrySummary.queryOptions());
 
-  const isLoading = overviewQuery.isLoading || networkQuery.isLoading;
-  const isError = overviewQuery.isError || networkQuery.isError;
-  const errorMessage = overviewQuery.error?.message ?? networkQuery.error?.message;
+  const isLoading = overviewQuery.isLoading || networkQuery.isLoading || summaryQuery.isLoading;
+  const isError = overviewQuery.isError || networkQuery.isError || summaryQuery.isError;
+  const errorMessage = overviewQuery.error?.message ?? networkQuery.error?.message ?? summaryQuery.error?.message;
 
   const totals = overviewQuery.data?.totals;
   const countries = overviewQuery.data?.countries ?? [];
   const cohorts = networkQuery.data?.cohorts ?? [];
   const gender = networkQuery.data?.gender ?? [];
   const mcfFellows = networkQuery.data?.totals.mcfFellows ?? 0;
+  const summaryCountries = summaryQuery.data?.countries ?? [];
+
+  const inclusion = useMemo(() => {
+    let pwdTotal = 0;
+    let pwdKnown = false;
+    let scholarTotal = 0;
+    let scholarKnown = false;
+    let cohortCount = 0;
+    for (const c of summaryCountries) {
+      cohortCount += c.cohortCount;
+      if (c.pwdTotal != null) {
+        pwdTotal += c.pwdTotal;
+        pwdKnown = true;
+      }
+      if (c.scholarTotal != null) {
+        scholarTotal += c.scholarTotal;
+        scholarKnown = true;
+      }
+    }
+    return {
+      pwdTotal: pwdKnown ? pwdTotal : null,
+      scholarTotal: scholarKnown ? scholarTotal : null,
+      cohortCount,
+    };
+  }, [summaryCountries]);
+
+  const femalePctByCountry = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const c of summaryCountries) map.set(c.id, c.femalePct);
+    return map;
+  }, [summaryCountries]);
 
   const networkGrowth = useMemo(() => {
     if (cohorts.length === 0) return [];
@@ -70,15 +106,15 @@ export default function ImpactReportPage() {
     });
   }, [cohorts]);
 
-  const genderData = useMemo(
-    () =>
-      gender.map((g) => ({
-        name: g.name,
-        count: g.count,
-        color: GENDER_COLORS[g.name] ?? "#4150A3",
-      })),
-    [gender],
-  );
+  const genderData = useMemo(() => {
+    const total = gender.reduce((sum, g) => sum + g.count, 0);
+    return gender.map((g) => ({
+      name: g.name,
+      count: g.count,
+      value: total > 0 ? Math.round((g.count / total) * 100) : 0,
+      color: GENDER_COLORS[g.name] ?? "#4150A3",
+    }));
+  }, [gender]);
 
   const pillars = useMemo(() => {
     const totalNetwork = totals?.totalNetwork ?? 0;
@@ -86,15 +122,6 @@ export default function ImpactReportPage() {
       totalNetwork > 0 ? Math.round((mcfFellows / totalNetwork) * 100) : null;
 
     return [
-      {
-        icon: <IconBuildingBank size={24} />,
-        title: "Retention Coverage",
-        desc:
-          totals?.placed != null && totals.activeFellows != null
-            ? `${totals.placed} of ${totals.activeFellows} active fellows are currently retained (${formatRate(totals.placementRate)}).`
-            : "Retention data will appear as country hubs record fellow retention.",
-        color: "#3B8BEB",
-      },
       {
         icon: <IconSchool size={24} />,
         title: "Program Capacity",
@@ -110,8 +137,17 @@ export default function ImpactReportPage() {
             : `${mcfFellows} MCF-flagged fellows in the network.`,
         color: "#7F77DD",
       },
+      {
+        icon: <IconAccessible size={24} />,
+        title: "Inclusion Snapshot",
+        desc:
+          inclusion.pwdTotal != null || inclusion.scholarTotal != null
+            ? `${inclusion.pwdTotal ?? "—"} PWDs and ${inclusion.scholarTotal ?? "—"} Foundation Scholars recorded across ${inclusion.cohortCount} cohorts network-wide.`
+            : "Inclusion data will appear as country hubs record PWD and scholar counts per cohort.",
+        color: "#2EC27E",
+      },
     ];
-  }, [totals, mcfFellows]);
+  }, [totals, mcfFellows, inclusion]);
 
   return (
     <ReportLayout activePage="impact" pageTitle="Global Impact Tracking">
@@ -136,8 +172,8 @@ export default function ImpactReportPage() {
               maxWidth: 700,
             }}
           >
-            Defensible aggregate outcomes from live hub data — retention, alumni growth, inclusion,
-            and institutional reach.
+            Defensible aggregate outcomes from live hub data — network growth, gender balance,
+            inclusion, and regional reach.
           </p>
         </div>
 
@@ -163,9 +199,9 @@ export default function ImpactReportPage() {
             >
               {[
                 {
-                  label: "Overall Retention",
-                  value: formatRate(totals?.placementRate),
-                  sub: `${totals?.placed ?? 0} of ${totals?.activeFellows ?? 0} active fellows retained`,
+                  label: "Total Network",
+                  value: String(totals?.totalNetwork ?? 0),
+                  sub: "Ever recruited across all cohorts",
                   color: "#3B8BEB",
                   icon: <IconBuildingBank size={24} />,
                 },
@@ -182,6 +218,13 @@ export default function ImpactReportPage() {
                   sub: "Active country hub integrations",
                   color: "#7F77DD",
                   icon: <IconWorld size={24} />,
+                },
+                {
+                  label: "MCF Fellows",
+                  value: String(mcfFellows),
+                  sub: "Mastercard Scholar-flagged fellows",
+                  color: "#E8A020",
+                  icon: <IconAward size={24} />,
                 },
               ].map((kpi) => (
                 <div
@@ -347,31 +390,41 @@ export default function ImpactReportPage() {
                   </div>
                 ) : (
                   <div style={{ flex: 1, minHeight: 300 }}>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart
-                        data={genderData}
-                        layout="vertical"
-                        margin={{ top: 0, right: 30, left: 10, bottom: 0 }}
-                      >
-                        <XAxis type="number" hide allowDecimals={false} />
-                        <YAxis
-                          dataKey="name"
-                          type="category"
-                          stroke="var(--ewhite)"
-                          fontSize={13}
-                          fontWeight={600}
-                          tickLine={false}
-                          axisLine={false}
-                          width={100}
-                        />
-                        <Tooltip cursor={{ fill: "transparent" }} contentStyle={chartTooltipStyle} />
-                        <Bar dataKey="count" radius={[0, 8, 8, 0]} barSize={20}>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <PieChart>
+                        <Pie
+                          data={genderData}
+                          dataKey="count"
+                          nameKey="name"
+                          innerRadius={70}
+                          outerRadius={100}
+                          paddingAngle={3}
+                          stroke="none"
+                        >
                           {genderData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
-                        </Bar>
-                      </BarChart>
+                        </Pie>
+                        <Tooltip
+                          contentStyle={chartTooltipStyle}
+                          itemStyle={chartTooltipItemStyle}
+                          labelStyle={chartTooltipLabelStyle}
+                        />
+                      </PieChart>
                     </ResponsiveContainer>
+                    <div style={{ display: "flex", justifyContent: "center", gap: 20, flexWrap: "wrap", marginTop: 8 }}>
+                      {genderData.map((entry) => (
+                        <div key={entry.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 10, height: 10, borderRadius: 3, background: entry.color }} />
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ewhite)" }}>
+                            {entry.name}
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--emuted)" }}>
+                            {entry.count} · {entry.value}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -402,7 +455,7 @@ export default function ImpactReportPage() {
                     }}
                   >
                     <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3B8BEB" }} />{" "}
-                    Retention
+                    % Female
                   </div>
                   <div
                     style={{
@@ -501,9 +554,9 @@ export default function ImpactReportPage() {
                             color: "var(--emuted)",
                           }}
                         >
-                          <span>RETENTION RATE</span>
+                          <span>% FEMALE</span>
                           <span style={{ color: "var(--ewhite)" }}>
-                            {formatRate(c.placementRate)}
+                            {formatRate(femalePctByCountry.get(c.id) ?? null)}
                           </span>
                         </div>
                         <div
@@ -516,7 +569,7 @@ export default function ImpactReportPage() {
                         >
                           <div
                             style={{
-                              width: `${c.placementRate ?? 0}%`,
+                              width: `${femalePctByCountry.get(c.id) ?? 0}%`,
                               height: "100%",
                               background: `linear-gradient(90deg, ${c.color}aa, ${c.color})`,
                               boxShadow: `0 0 10px ${c.color}40`,

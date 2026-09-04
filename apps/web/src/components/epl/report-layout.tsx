@@ -12,13 +12,15 @@ import {
   IconFlag,
   IconSchool,
   IconChartBar,
+  IconAward,
 } from "@tabler/icons-react";
 
 const REPORT_NAV: SubNavItem[] = [
-  { key: "overview", label: "Overview",   icon: <IconLayoutDashboard size={20} />, href: "/dashboard/reports" },
-  { key: "country",  label: "By Country", icon: <IconFlag size={20} />,            href: "/dashboard/reports/country" },
-  { key: "program",  label: "By Program", icon: <IconSchool size={20} />,          href: "/dashboard/reports/program" },
-  { key: "impact",   label: "Impact",     icon: <IconChartBar size={20} />,        href: "/dashboard/reports/impact" },
+  { key: "overview", label: "Overview",      icon: <IconLayoutDashboard size={20} />, href: "/dashboard/reports" },
+  { key: "country",  label: "Summary",       icon: <IconFlag size={20} />,            href: "/dashboard/reports/country" },
+  { key: "program",  label: "Country Stats", icon: <IconSchool size={20} />,          href: "/dashboard/reports/program" },
+  { key: "mcf",      label: "MCF Stats",     icon: <IconAward size={20} />,           href: "/dashboard/reports/mcf" },
+  { key: "impact",   label: "Impact",        icon: <IconChartBar size={20} />,        href: "/dashboard/reports/impact" },
 ];
 
 interface Props {

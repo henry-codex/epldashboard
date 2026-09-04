@@ -24,6 +24,7 @@ import {
   IconHeartHandshake,
   IconBuildingBank,
   IconLoader2,
+  IconChartBar,
 } from "@tabler/icons-react";
 
 function getCountryNav(id: string, options?: { includeSettings?: boolean }): SubNavItem[] {
@@ -33,6 +34,7 @@ function getCountryNav(id: string, options?: { includeSettings?: boolean }): Sub
     { key: "fellows", label: "Network", icon: <IconUsers size={20} />, href: `${base}/fellows` },
     { key: "programs", label: "Programs", icon: <IconSchool size={20} />, href: `${base}/programs` },
     { key: "cohorts", label: "Cohorts", icon: <IconStack2 size={20} />, href: `${base}/cohorts` },
+    { key: "stats", label: "Country Stats", icon: <IconChartBar size={20} />, href: `${base}/stats` },
     { key: "institutions", label: "Placement Institutions", icon: <IconBuildingBank size={20} />, href: `${base}/institutions` },
     { key: "partners", label: "Partners", icon: <IconHeartHandshake size={20} />, href: `${base}/partners` },
     { key: "alumni", label: "Alumni Leaders", icon: <IconBuildingCommunity size={20} />, href: `${base}/alumni` },

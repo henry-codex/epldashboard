@@ -22,6 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { EventsCalendar, formatEventWhen } from "@/components/epl/events-calendar";
 import { SlidePanel } from "@/components/epl/slide-panel";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { flagImageUrl, resolveIso2 } from "@/lib/world-countries";
 import { queryClient, trpc } from "@/utils/trpc";
 
@@ -322,6 +323,7 @@ type Props = {
 
 export function ContinentalEventsView({ totals, events, isLoading }: Props) {
   const router = useRouter();
+  const confirm = useConfirm();
   const now = new Date();
   const [timeframe, setTimeframe] = useState<TimeframeTab>("upcoming");
   const [scopeFilter, setScopeFilter] = useState<string>("all");
@@ -467,9 +469,15 @@ export function ContinentalEventsView({ totals, events, isLoading }: Props) {
     });
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedEvent) return;
-    if (!window.confirm(`Are you sure you want to delete "${selectedEvent.title}"?`)) return;
+    const ok = await confirm({
+      title: "Delete event?",
+      message: `Are you sure you want to delete "${selectedEvent.title}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     deleteMutation.mutate({ id: selectedEvent.id });
   };
 

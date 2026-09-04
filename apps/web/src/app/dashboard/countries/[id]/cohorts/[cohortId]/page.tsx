@@ -75,22 +75,20 @@ export default function CohortMembersPage() {
               </h2>
               <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--emuted)", fontFamily: "var(--font)" }}>
                 {cohort.status === "completed"
-                  ? `Alumni roster for this cohort${cohort.cohortYear != null ? ` · cohort year ${cohort.cohortYear}` : ""} · ${cohort.totalFellows} started · ${cohort.alumniFellows} alumni · ${cohort.placed} retained`
+                  ? `Alumni roster for this cohort${cohort.cohortYear != null ? ` · cohort year ${cohort.cohortYear}` : ""} · ${cohort.totalFellows} started · ${cohort.alumniFellows} alumni`
                   : `Member roster for this cohort${cohort.cohortYear != null ? ` · cohort year ${cohort.cohortYear}` : ""} · ${cohort.totalFellows} started · ${cohort.activeFellows} in fellowship · ${cohort.alumniFellows} alumni`}
               </p>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
               {(cohort.status === "completed"
                 ? [
                     { label: "Started", value: cohort.totalFellows, color: hub.color },
                     { label: "Alumni", value: cohort.alumniFellows, color: "#3B8BEB" },
-                    { label: "Retained", value: cohort.placed, color: "#2EC27E" },
                   ]
                 : [
                     { label: "In fellowship", value: cohort.activeFellows, color: hub.color },
                     { label: "Alumni", value: cohort.alumniFellows, color: "#3B8BEB" },
-                    { label: "Retained", value: cohort.placed, color: "#2EC27E" },
                   ]
               ).map((stat) => (
                 <div key={stat.label} className="gc" style={{ padding: 16, display: "flex", alignItems: "center", gap: 12 }}>

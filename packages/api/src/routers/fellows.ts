@@ -1,16 +1,34 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
-import { db, fellows, networkFieldDefs, placements } from "@epl-fellows-platform/db";
+import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import {
+  db,
+  fellows,
+  networkFieldDefs,
+  placements,
+  hubPartners,
+  hubPrograms,
+  hubCohorts,
+  checkIns,
+  activityLog,
+  tenants,
+} from "@epl-fellows-platform/db";
+import {
+  COUNTRY_IMPORT_PROFILES,
+  detectCountryProfile,
+  isBlockingRow,
+} from "@epl-fellows-platform/db/lib/country-import-profiles";
 import { router, protectedProcedure } from "../index";
 import { assertTenantAccess, resolveTenantId } from "../lib/tenant-access.js";
 import { assertNetworkManager, isNetworkManager } from "../lib/network-access.js";
 import { assertTenantProgram } from "../lib/program-access.js";
 import { parseCsv, serializeCsv } from "../lib/csv.js";
 import { countBreakdown, formatStatusLabel, normalizeGender, parseDisabilityValue } from "../lib/demographics.js";
-import { assertTenantPartner, syncPartnerFellowCounts } from "../lib/partner-stats.js";
+import { assertTenantPartner, syncPartnerFellowCounts, normalizeName, canonicalizeInstitutionNames } from "../lib/partner-stats.js";
+import { parseCohortNumber } from "../lib/cohort-stats.js";
+import { FELLOW_STATUSES, type FellowStatus } from "../lib/fellow-status.js";
 
-const fellowStatusSchema = z.enum(["active", "alumni", "inactive"]);
+const fellowStatusSchema = z.enum(FELLOW_STATUSES);
 const fieldTypeSchema = z.enum(["text", "number", "date", "select", "boolean"]);
 
 const SERVICE_KEYS = [
@@ -64,9 +82,21 @@ function applyServiceLocation(
   return customFields;
 }
 
+// Flags and profile details captured on import that don't (yet) have a
+// dedicated column — kept as reserved customFields keys, same pattern as
+// has_disability, so they survive updates and are editable like any other
+// first-class field.
+const BOOLEAN_RESERVED_KEYS = ["has_disability", "is_idp", "is_mcf_scholar"] as const;
+const STRING_RESERVED_KEYS = ["qualification", "university"] as const;
+
 function pickReservedCustomFields(customFields: Record<string, unknown>) {
   const reserved: Record<string, unknown> = {};
-  if ("has_disability" in customFields) reserved.has_disability = customFields.has_disability;
+  for (const key of BOOLEAN_RESERVED_KEYS) {
+    if (key in customFields) reserved[key] = customFields[key];
+  }
+  for (const key of STRING_RESERVED_KEYS) {
+    if (key in customFields) reserved[key] = customFields[key];
+  }
   for (const key of SERVICE_KEYS) {
     if (key in customFields) reserved[key] = customFields[key];
   }
@@ -140,7 +170,7 @@ function mapFellow(row: typeof fellows.$inferSelect) {
     gender: row.gender,
     cohortYear: row.cohortYear,
     program: row.program,
-    status: row.status as "active" | "alumni" | "inactive",
+    status: row.status as FellowStatus,
     isMcf: row.isMcf ?? false,
     customFields,
     ...service,
@@ -224,6 +254,10 @@ const fellowInputSchema = z.object({
   nationality: z.string().max(80).optional(),
   gender: z.string().max(40).optional(),
   hasDisability: z.boolean().optional(),
+  isIdp: z.boolean().optional(),
+  isMcfScholar: z.boolean().optional(),
+  qualification: z.string().max(200).optional().nullable(),
+  university: z.string().max(200).optional().nullable(),
   serviceOrganization: z.string().max(200).optional().nullable(),
   serviceRole: z.string().max(200).optional().nullable(),
   serviceCity: z.string().max(120).optional().nullable(),
@@ -261,7 +295,7 @@ export const fellowsRouter = router({
           .where(
             and(
               eq(fellows.tenantId, tenantId),
-              eq(fellows.status, "active"),
+              inArray(fellows.status, ["active", "incoming"]),
               eq(fellows.isMcf, true),
             ),
           ),
@@ -270,16 +304,19 @@ export const fellowsRouter = router({
       let activeFellows = 0;
       let alumniLeaders = 0;
       let inactiveFellows = 0;
+      let incomingFellows = 0;
       for (const row of statusRows) {
         if (row.status === "active") activeFellows = row.count;
         if (row.status === "alumni") alumniLeaders = row.count;
         if (row.status === "inactive") inactiveFellows = row.count;
+        if (row.status === "incoming") incomingFellows = row.count;
       }
 
       return {
         activeFellows,
         alumniLeaders,
         inactiveFellows,
+        incomingFellows,
         mcfFellows: mcfRow[0]?.count ?? 0,
         totalNetwork: activeFellows + alumniLeaders,
       };
@@ -307,6 +344,14 @@ export const fellowsRouter = router({
       const disability = countBreakdown(
         rows.map((row) => parseDisabilityValue((row.customFields ?? {}) as Record<string, unknown>)),
       );
+      const currentRows = rows.filter((row) => row.status === "active" || row.status === "incoming");
+      // Scoped to the current roster (active + incoming) — matches what the
+      // Network page's default view and its "worth watching" stats actually
+      // count, rather than blending in historical alumni.
+      const currentGender = countBreakdown(currentRows.map((row) => normalizeGender(row.gender)));
+      const currentDisability = countBreakdown(
+        currentRows.map((row) => parseDisabilityValue((row.customFields ?? {}) as Record<string, unknown>)),
+      );
       const status = countBreakdown(rows.map((row) => formatStatusLabel(row.status)));
       const programs = countBreakdown(
         rows.map((row) => row.program?.trim() || "Not specified"),
@@ -315,15 +360,34 @@ export const fellowsRouter = router({
       const mcf = countBreakdown(
         rows.map((row) => (row.isMcf ? "Mastercard Foundation" : "Other fellows")),
       );
-      const cohortMap = new Map<number, number>();
+      // The per-person scholar flag from the sheet's own "Mastercard Scholar"
+      // column — distinct from isMcf, which is a cohort-wide funding
+      // assumption and can mark every fellow in a cohort "Yes" even when
+      // only some of them are individually designated scholars.
+      const currentScholars = currentRows.filter(
+        (row) => (row.customFields as Record<string, unknown> | null)?.is_mcf_scholar === true,
+      ).length;
+      const cohortMap = new Map<number | null, number>();
       for (const row of rows) {
         cohortMap.set(row.cohortYear, (cohortMap.get(row.cohortYear) ?? 0) + 1);
       }
       const cohorts = [...cohortMap.entries()]
-        .sort(([a], [b]) => a - b)
-        .map(([year, count]) => ({ name: String(year), count }));
+        .sort(([a], [b]) => (a ?? Infinity) - (b ?? Infinity))
+        .map(([year, count]) => ({ name: year != null ? String(year) : "Unspecified", count }));
 
-      return { gender, disability, status, programs, mcf, mcfFellows, cohorts, total: rows.length };
+      return {
+        gender,
+        disability,
+        currentGender,
+        currentDisability,
+        status,
+        programs,
+        mcf,
+        mcfFellows,
+        currentScholars,
+        cohorts,
+        total: rows.length,
+      };
     }),
 
   list: protectedProcedure
@@ -331,7 +395,7 @@ export const fellowsRouter = router({
       z.object({
         tenantId: z.string().uuid(),
         search: z.string().max(120).optional(),
-        status: fellowStatusSchema.optional(),
+        status: z.union([fellowStatusSchema, z.array(fellowStatusSchema).min(1)]).optional(),
         cohortYear: z.number().int().min(2000).max(2100).optional(),
         sort: z.enum(["name_asc", "name_desc", "newest"]).optional().default("name_asc"),
         limit: z.number().int().min(1).max(200).default(100),
@@ -350,7 +414,8 @@ export const fellowsRouter = router({
       await assertTenantAccess(ctx, tenantId);
 
       const filters = [eq(fellows.tenantId, tenantId)];
-      if (input.status) filters.push(eq(fellows.status, input.status));
+      if (Array.isArray(input.status)) filters.push(inArray(fellows.status, input.status));
+      else if (input.status) filters.push(eq(fellows.status, input.status));
       if (input.cohortYear !== undefined) filters.push(eq(fellows.cohortYear, input.cohortYear));
       if (input.search?.trim()) {
         const q = `%${input.search.trim()}%`;
@@ -433,6 +498,10 @@ export const fellowsRouter = router({
         {
           ...normalizeCustomFields(defs, input.customFields),
           ...(input.hasDisability !== undefined ? { has_disability: input.hasDisability } : {}),
+          ...(input.isIdp !== undefined ? { is_idp: input.isIdp } : {}),
+          ...(input.isMcfScholar !== undefined ? { is_mcf_scholar: input.isMcfScholar } : {}),
+          ...(input.qualification ? { qualification: input.qualification.trim() } : {}),
+          ...(input.university ? { university: input.university.trim() } : {}),
         },
         serviceInput,
       );
@@ -527,6 +596,10 @@ export const fellowsRouter = router({
       if (
         input.customFields !== undefined ||
         input.hasDisability !== undefined ||
+        input.isIdp !== undefined ||
+        input.isMcfScholar !== undefined ||
+        input.qualification !== undefined ||
+        input.university !== undefined ||
         input.serviceOrganization !== undefined ||
         input.serviceRole !== undefined ||
         input.serviceCity !== undefined ||
@@ -554,15 +627,20 @@ export const fellowsRouter = router({
         }
 
         const existingCustom = (existing.customFields ?? {}) as Record<string, unknown>;
+        const reservedOverride = (key: string, value: boolean | string | null | undefined) => {
+          if (value !== undefined) return { [key]: value };
+          if (key in existingCustom) return { [key]: existingCustom[key] };
+          return {};
+        };
         patch.customFields = applyServiceLocation(
           {
             ...pickReservedCustomFields(existingCustom),
             ...normalizeCustomFields(defs, mergedCustom),
-            ...(input.hasDisability !== undefined
-              ? { has_disability: input.hasDisability }
-              : "has_disability" in existingCustom
-                ? { has_disability: existingCustom.has_disability }
-                : {}),
+            ...reservedOverride("has_disability", input.hasDisability),
+            ...reservedOverride("is_idp", input.isIdp),
+            ...reservedOverride("is_mcf_scholar", input.isMcfScholar),
+            ...reservedOverride("qualification", input.qualification?.trim() || undefined),
+            ...reservedOverride("university", input.university?.trim() || undefined),
           },
           serviceInput,
         );
@@ -610,6 +688,67 @@ export const fellowsRouter = router({
       return { success: true };
     }),
 
+  /**
+   * Clears this hub's imported network data so an import can be redone from
+   * scratch. Deliberately scoped to one tenant and gated on the hub name
+   * being typed back, because it is not recoverable.
+   */
+  bulkDelete: protectedProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        confirmHubName: z.string().min(1),
+        includeInstitutions: z.boolean().optional().default(false),
+        includeCohorts: z.boolean().optional().default(false),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+      if (!tenant) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Country hub not found" });
+      }
+      if (input.confirmHubName.trim().toLowerCase() !== tenant.name.trim().toLowerCase()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Type the hub name exactly ("${tenant.name}") to confirm clearing its network data`,
+        });
+      }
+
+      // Ordered to respect foreign keys: check-ins -> activity -> placements -> fellows.
+      const checkInRows = await db.delete(checkIns).where(eq(checkIns.tenantId, tenantId)).returning();
+      const activityRows = await db.delete(activityLog).where(eq(activityLog.tenantId, tenantId)).returning();
+      const placementRows = await db.delete(placements).where(eq(placements.tenantId, tenantId)).returning();
+      const fellowRows = await db.delete(fellows).where(eq(fellows.tenantId, tenantId)).returning();
+
+      let institutionsDeleted = 0;
+      if (input.includeInstitutions) {
+        const rows = await db
+          .delete(hubPartners)
+          .where(and(eq(hubPartners.tenantId, tenantId), eq(hubPartners.kind, "placement")))
+          .returning();
+        institutionsDeleted = rows.length;
+      }
+
+      let cohortsDeleted = 0;
+      if (input.includeCohorts) {
+        const rows = await db.delete(hubCohorts).where(eq(hubCohorts.tenantId, tenantId)).returning();
+        cohortsDeleted = rows.length;
+      }
+
+      return {
+        fellowsDeleted: fellowRows.length,
+        placementsDeleted: placementRows.length,
+        checkInsDeleted: checkInRows.length,
+        activityDeleted: activityRows.length,
+        institutionsDeleted,
+        cohortsDeleted,
+      };
+    }),
+
   transitionStatus: protectedProcedure
     .input(
       z.object({
@@ -648,6 +787,29 @@ export const fellowsRouter = router({
       return mapFellow(updated);
     }),
 
+  bulkTransitionStatus: protectedProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        ids: z.array(z.string().uuid()).min(1).max(500),
+        status: fellowStatusSchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const updated = await db
+        .update(fellows)
+        .set({ status: input.status, updatedAt: new Date() })
+        .where(and(eq(fellows.tenantId, tenantId), inArray(fellows.id, input.ids)))
+        .returning();
+
+      await syncPartnerFellowCounts(tenantId);
+      return { updated: updated.length };
+    }),
+
   importCsv: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid(), csv: z.string().min(1).max(2_000_000) }))
     .mutation(async ({ ctx, input }) => {
@@ -666,34 +828,101 @@ export const fellowsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "CSV is empty or missing a header row" });
       }
 
-      const required = ["firstName", "lastName", "email", "status", "cohortYear", "program"];
-      const missing = required.filter((h) => !headers.includes(h));
-      if (missing.length) {
+      const errors: { row: number; message: string }[] = [];
+
+      // Two accepted shapes:
+      //  1. The platform's own column names (firstName/lastName/status/...)
+      //  2. A country's raw roster export, recognized by its own headers
+      //     (Ghana's "Fellow/Cohort/Placement Organisation", Sierra Leone's
+      //     "Full Name/Cohort/Host", etc.) and translated server-side, so a
+      //     country team can upload the file exactly as they export it.
+      const hasCanonicalHeaders = ["firstName", "lastName", "status", "program"].every((h) =>
+        headers.includes(h),
+      );
+      const countryProfile = hasCanonicalHeaders ? null : detectCountryProfile(headers);
+
+      if (!hasCanonicalHeaders && !countryProfile) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `CSV missing required columns: ${missing.join(", ")}`,
+          message:
+            "Unrecognized CSV format. Upload either a country roster export this platform knows " +
+            `(${COUNTRY_IMPORT_PROFILES.map((p) => p.label).join(", ")}) or a file with the standard ` +
+            "columns: firstName, lastName, status, program.",
         });
       }
 
-      let created = 0;
-      let updated = 0;
-      const errors: { row: number; message: string }[] = [];
+      type PreparedRow = {
+        rowNum: number;
+        firstName: string;
+        lastName: string;
+        email: string | null;
+        phone: string | null;
+        nationality: string | null;
+        gender: string | null;
+        cohortYear: number | null;
+        cohortLabel: string | null;
+        /** null = fall back to this hub's program when it has exactly one */
+        program: string | null;
+        status: FellowStatus;
+        isMcf: boolean;
+        externalId: string | null;
+        customFields: Record<string, unknown>;
+        rawInstitution: string | null;
+      };
 
-      for (let i = 0; i < rows.length; i += 1) {
-        const row = rows[i]!;
-        const rowNum = i + 2;
+      const prepared: PreparedRow[] = [];
 
-        try {
+      if (countryProfile) {
+        for (const person of countryProfile.transform(rows)) {
+          if (isBlockingRow(person)) {
+            errors.push({ row: person.sourceRow, message: person.warnings.join("; ") || "Could not identify this row" });
+            continue;
+          }
+          const customFields: Record<string, unknown> = {};
+          if (person.hasDisability != null) customFields.has_disability = person.hasDisability;
+          if (person.isIdp != null) customFields.is_idp = person.isIdp;
+          if (person.isMcfScholar != null) customFields.is_mcf_scholar = person.isMcfScholar;
+          if (person.qualification) customFields.qualification = person.qualification;
+          if (person.university) customFields.university = person.university;
+          if (person.cohortLabel) customFields.source_cohort_label = person.cohortLabel;
+
+          prepared.push({
+            rowNum: person.sourceRow,
+            firstName: person.firstName,
+            lastName: person.lastName || person.firstName,
+            email: person.email,
+            phone: person.phone,
+            nationality: null,
+            gender: person.gender,
+            cohortYear: person.cohortYear,
+            cohortLabel: person.cohortLabel,
+            program: null,
+            status: person.status,
+            isMcf: person.isMcf,
+            externalId: person.externalId,
+            customFields,
+            rawInstitution: person.placementInstitution,
+          });
+        }
+      } else {
+        for (let i = 0; i < rows.length; i += 1) {
+          const row = rows[i]!;
+          const rowNum = i + 2;
+
           const statusParsed = fellowStatusSchema.safeParse(row.status?.trim());
           if (!statusParsed.success) {
-            errors.push({ row: rowNum, message: "Invalid status (use active, alumni, or inactive)" });
+            errors.push({ row: rowNum, message: `Invalid status (use ${FELLOW_STATUSES.join(", ")})` });
             continue;
           }
 
-          const cohortYear = Number.parseInt(row.cohortYear ?? "", 10);
-          if (Number.isNaN(cohortYear)) {
-            errors.push({ row: rowNum, message: "cohortYear must be a number" });
-            continue;
+          let cohortYear: number | null = null;
+          if (row.cohortYear?.trim()) {
+            const parsed = Number.parseInt(row.cohortYear, 10);
+            if (Number.isNaN(parsed)) {
+              errors.push({ row: rowNum, message: "cohortYear must be a number" });
+              continue;
+            }
+            cohortYear = parsed;
           }
 
           const customValues: Record<string, unknown> = {};
@@ -712,27 +941,110 @@ export const fellowsRouter = router({
             continue;
           }
 
-          const payload = {
-            firstName: row.firstName?.trim() ?? "",
-            lastName: row.lastName?.trim() ?? "",
-            email: row.email?.trim().toLowerCase() ?? "",
+          const firstName = row.firstName?.trim() ?? "";
+          const lastName = row.lastName?.trim() ?? "";
+          if (!firstName || !lastName) {
+            errors.push({ row: rowNum, message: "Missing required core fields" });
+            continue;
+          }
+
+          prepared.push({
+            rowNum,
+            firstName,
+            lastName,
+            email: row.email?.trim().toLowerCase() || null,
             phone: row.phone?.trim() || null,
             nationality: row.nationality?.trim() || null,
             gender: row.gender?.trim() || null,
             cohortYear,
-            program: row.program?.trim() ?? "",
+            cohortLabel: row.cohortLabel?.trim() || null,
+            program: row.program?.trim() || null,
             status: statusParsed.data,
             isMcf: parseBool(row.isMcf),
             externalId: row.externalId?.trim() || null,
             customFields: normalizeCustomFields(defs, customValues),
+            rawInstitution: row.institution?.trim() || null,
+          });
+        }
+      }
+
+      // A raw country export has no "program" column — fall back to this
+      // hub's program when there's exactly one, rather than asking anyone
+      // to hand-edit their file.
+      let defaultProgram: string | null = null;
+      if (prepared.some((p) => !p.program)) {
+        const programs = await db.query.hubPrograms.findMany({ where: eq(hubPrograms.tenantId, tenantId) });
+        if (programs.length === 1) {
+          defaultProgram = programs[0]!.title;
+        } else {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              programs.length === 0
+                ? "Add a program for this hub before importing, so fellows can be assigned to it."
+                : "This hub has more than one program, so the program can't be inferred. Add a 'program' column naming the right one for each row.",
+          });
+        }
+      }
+
+      const institutionCanonical = canonicalizeInstitutionNames([
+        ...new Set(prepared.map((p) => p.rawInstitution).filter((v): v is string => !!v)),
+      ]);
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+      const activePartnerCounts = new Map<string, { name: string; count: number }>();
+
+      // Cohorts are a first-class thing in the source data (Cohort 1 = 2025,
+      // Cohort 2 = 2026, …). Accumulate them here so the import creates the
+      // cohort records too, with demographics derived from the real people —
+      // otherwise fellows land with a bare year and nothing to group them by.
+      type CohortAccumulator = {
+        label: string;
+        year: number;
+        total: number;
+        alumni: number;
+        active: number;
+        incoming: number;
+        male: number;
+        female: number;
+        pwd: number;
+        idp: number;
+        scholar: number;
+        isMcf: boolean;
+      };
+      const cohortAcc = new Map<number, CohortAccumulator>();
+
+      let created = 0;
+      let updated = 0;
+
+      for (const row of prepared) {
+        const rowNum = row.rowNum;
+
+        try {
+          const canonicalInstitution = row.rawInstitution
+            ? institutionCanonical.get(row.rawInstitution)!
+            : null;
+
+          const payload = {
+            firstName: row.firstName,
+            lastName: row.lastName,
+            email: row.email,
+            phone: row.phone,
+            nationality: row.nationality,
+            gender: row.gender,
+            cohortYear: row.cohortYear,
+            program: row.program ?? defaultProgram ?? "",
+            status: row.status,
+            isMcf: row.isMcf,
+            externalId: row.externalId,
+            customFields: {
+              ...row.customFields,
+              // Matched against hubPartners by name in partner-stats.ts, so
+              // the app's own live partner fellow-count sync stays correct.
+              ...(canonicalInstitution ? { service_organization: canonicalInstitution } : {}),
+            },
             source: "csv" as const,
             lastSyncedAt: new Date(),
           };
-
-          if (!payload.firstName || !payload.lastName || !payload.email || !payload.program) {
-            errors.push({ row: rowNum, message: "Missing required core fields" });
-            continue;
-          }
 
           try {
             await assertTenantProgram(tenantId, payload.program);
@@ -748,12 +1060,13 @@ export const fellowsRouter = router({
               where: and(eq(fellows.tenantId, tenantId), eq(fellows.externalId, payload.externalId)),
             });
           }
-          if (!existing) {
+          if (!existing && payload.email) {
             existing = await db.query.fellows.findFirst({
               where: and(eq(fellows.tenantId, tenantId), eq(fellows.email, payload.email)),
             });
           }
 
+          let fellowId: string;
           if (existing) {
             await db
               .update(fellows)
@@ -762,13 +1075,74 @@ export const fellowsRouter = router({
                 updatedAt: new Date(),
               })
               .where(eq(fellows.id, existing.id));
+            fellowId = existing.id;
             updated += 1;
           } else {
-            await db.insert(fellows).values({
+            const [inserted] = await db.insert(fellows).values({
               tenantId,
               ...payload,
-            });
+            }).returning();
+            fellowId = inserted!.id;
             created += 1;
+          }
+
+          if (canonicalInstitution) {
+            // "isCurrent" is what the app's UI shows as "retained" — true
+            // only means something for an active fellow (their present
+            // service location is a known fact from the roster). For an
+            // alumnus, whether that institution kept them on afterward is
+            // a real unknown until the program confirms it — null, not a
+            // default "yes". Looked up without filtering on isCurrent so a
+            // re-import updates the same row instead of duplicating it.
+            const isRetentionKnown = row.status === "active" ? true : null;
+            const existingPlacement = await db.query.placements.findFirst({
+              where: and(eq(placements.tenantId, tenantId), eq(placements.fellowId, fellowId)),
+            });
+            if (existingPlacement) {
+              await db
+                .update(placements)
+                .set({ institution: canonicalInstitution, isCurrent: isRetentionKnown })
+                .where(eq(placements.id, existingPlacement.id));
+            } else {
+              await db.insert(placements).values({
+                tenantId,
+                fellowId,
+                institution: canonicalInstitution,
+                country: tenant?.name ?? "",
+                isCurrent: isRetentionKnown,
+              });
+            }
+
+            if (payload.status === "active") {
+              const key = normalizeName(canonicalInstitution);
+              const entry = activePartnerCounts.get(key);
+              if (entry) entry.count += 1;
+              else activePartnerCounts.set(key, { name: canonicalInstitution, count: 1 });
+            }
+          }
+
+          if (row.cohortYear != null) {
+            const acc =
+              cohortAcc.get(row.cohortYear) ??
+              {
+                label: row.cohortLabel ?? `Cohort ${row.cohortYear}`,
+                year: row.cohortYear,
+                total: 0, alumni: 0, active: 0, incoming: 0,
+                male: 0, female: 0, pwd: 0, idp: 0, scholar: 0,
+                isMcf: false,
+              };
+            acc.total += 1;
+            if (row.status === "alumni") acc.alumni += 1;
+            if (row.status === "active") acc.active += 1;
+            if (row.status === "incoming") acc.incoming += 1;
+            const gender = row.gender?.trim().toLowerCase();
+            if (gender?.startsWith("m")) acc.male += 1;
+            if (gender?.startsWith("f")) acc.female += 1;
+            if (row.customFields.has_disability === true) acc.pwd += 1;
+            if (row.customFields.is_idp === true) acc.idp += 1;
+            if (row.customFields.is_mcf_scholar === true) acc.scholar += 1;
+            if (row.isMcf) acc.isMcf = true;
+            cohortAcc.set(row.cohortYear, acc);
           }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Import failed";
@@ -776,7 +1150,90 @@ export const fellowsRouter = router({
         }
       }
 
-      return { created, updated, errors };
+      // Placement institutions ("Partners" list), from ACTIVE fellows in
+      // this import only — alumni's historical placements don't need a
+      // live institution record. Matches any partner already created
+      // manually by normalized name instead of duplicating it.
+      let partnersCreated = 0;
+      let partnersUpdated = 0;
+      if (activePartnerCounts.size > 0) {
+        const existingPartners = await db.query.hubPartners.findMany({
+          where: and(eq(hubPartners.tenantId, tenantId), eq(hubPartners.kind, "placement")),
+        });
+        const existingByKey = new Map(existingPartners.map((p) => [normalizeName(p.name), p]));
+
+        for (const [key, entry] of activePartnerCounts) {
+          const existingPartner = existingByKey.get(key);
+          if (existingPartner) {
+            await db.update(hubPartners).set({ fellowCount: entry.count, updatedAt: new Date() }).where(eq(hubPartners.id, existingPartner.id));
+            partnersUpdated += 1;
+          } else {
+            await db.insert(hubPartners).values({
+              tenantId,
+              name: entry.name,
+              kind: "placement",
+              status: "active",
+              fellowCount: entry.count,
+            });
+            partnersCreated += 1;
+          }
+        }
+      }
+
+      // Cohort records, derived from the people just imported. Counts and
+      // demographics are recomputed from the real rows; anything a country
+      // manager set by hand (label, dates, notes, attrition) is left alone.
+      let cohortsCreated = 0;
+      let cohortsUpdated = 0;
+      if (cohortAcc.size > 0) {
+        const existingCohorts = await db.query.hubCohorts.findMany({
+          where: eq(hubCohorts.tenantId, tenantId),
+        });
+        const byYear = new Map(
+          existingCohorts.filter((c) => c.cohortYear != null).map((c) => [c.cohortYear!, c]),
+        );
+
+        for (const [year, acc] of cohortAcc) {
+          const derived = {
+            startedCount: acc.total,
+            graduatedCount: acc.alumni,
+            maleCount: acc.male,
+            femaleCount: acc.female,
+            pwdCount: acc.pwd,
+            idpCount: acc.idp,
+            scholarCount: acc.scholar,
+            isMcf: acc.isMcf,
+            status: acc.active > 0 || acc.incoming > 0 ? "in_progress" : "completed",
+            updatedAt: new Date(),
+          };
+
+          const existingCohort = byYear.get(year);
+          if (existingCohort) {
+            await db.update(hubCohorts).set(derived).where(eq(hubCohorts.id, existingCohort.id));
+            cohortsUpdated += 1;
+          } else {
+            await db.insert(hubCohorts).values({
+              tenantId,
+              label: acc.label,
+              cohortNumber: parseCohortNumber(acc.label),
+              cohortYear: year,
+              sortOrder: year,
+              ...derived,
+            });
+            cohortsCreated += 1;
+          }
+        }
+      }
+
+      return {
+        created,
+        updated,
+        errors,
+        partnersCreated,
+        partnersUpdated,
+        cohortsCreated,
+        cohortsUpdated,
+      };
     }),
 
   exportCsv: protectedProcedure
@@ -803,9 +1260,9 @@ export const fellowsRouter = router({
         const record: Record<string, string> = {
           firstName: row.firstName,
           lastName: row.lastName,
-          email: row.email,
+          email: row.email ?? "",
           status: row.status,
-          cohortYear: String(row.cohortYear),
+          cohortYear: row.cohortYear != null ? String(row.cohortYear) : "",
           program: row.program,
           phone: row.phone ?? "",
           nationality: row.nationality ?? "",

@@ -33,7 +33,7 @@ type RosterRow = {
   fellowId: string;
   firstName: string;
   lastName: string;
-  email: string;
+  email: string | null;
   program: string;
   placementLabel: string | null;
   serviceLocationLabel?: string | null;

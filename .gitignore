@@ -48,3 +48,6 @@ coverage
 .cache
 tmp
 temp
+
+# Raw fellow/alumni data exports (contains PII - names, phone, email)
+/data

@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CountryLayout } from "@/components/epl/country-layout";
+import { CountryInsights } from "@/components/epl/country-insights";
+import { CountrySummaryPanel, type McfStatRow } from "@/components/epl/country-summary";
 import { COUNTRIES_MAP, type CountryId, type CountryData } from "@/lib/mock-data";
 import { trpc } from "@/utils/trpc";
 import { flagImageUrl, resolveIso2 } from "@/lib/world-countries";
@@ -19,6 +21,7 @@ import {
   IconGlobe,
 } from "@tabler/icons-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import type { InsightCohort } from "@/components/epl/country-insights";
 
 type HubView = {
   id: string;
@@ -26,6 +29,7 @@ type HubView = {
   color: string;
   flagSrc: string;
   fellows: number;
+  incomingFellows: number;
   alumniLeaders: number;
   totalNetwork: number;
   institutions: number;
@@ -37,7 +41,9 @@ type HubView = {
   upcomingEventsCount: number;
   cohortCount: number;
   representatives: number;
-  cohorts: { year: string; fellows: number; placed: number; graduated: number; inProgress?: boolean }[];
+  cohorts: { year: string; fellows: number; placed: number; graduated: number; femalePct: number | null; inProgress?: boolean }[];
+  rawCohorts: InsightCohort[];
+  mcfRows: McfStatRow[];
   projects: { name: string; status: "active" | "completed" | "planning"; fellows: number; startDate: string }[];
   recentUpdates: { text: string; time: string; type: string }[];
   events: { title: string; date: string; id: string }[];
@@ -107,19 +113,6 @@ function StatBox({ label, value, accent, icon }: {
         </div>
       </div>
     </div>
-  );
-}
-
-function StatusDot({ status }: { status: "active" | "completed" | "planning" }) {
-  const c = status === "active" ? "#2EC27E" : status === "completed" ? "#3B8BEB" : "var(--emuted)";
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      fontSize: 10, fontWeight: 600, color: c, fontFamily: "var(--font)", textTransform: "capitalize",
-    }}>
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: c, boxShadow: `0 0 6px ${c}50` }} />
-      {status}
-    </span>
   );
 }
 
@@ -233,13 +226,25 @@ function EmptyPanel({ title, message }: { title: string; message: string }) {
 }
 
 function CountryDashboard({ hub }: { hub: HubView }) {
+  // Recruited vs graduated, not "retained" — post-programme retention is
+  // unconfirmed for almost every alumnus, so charting it plots a row of
+  // zeros that reads as "nobody was retained" rather than "not yet known".
   const cohortData = [...hub.cohorts].reverse().map((c) => ({
     name: c.year.toString(),
-    Fellows: c.fellows,
-    Retained: c.placed,
+    Recruited: c.fellows,
+    Graduated: c.graduated,
   }));
-  const pieData = hub.projects.filter((p) => p.fellows > 0).map((p) => ({ name: p.name, value: p.fellows }));
-  const COLORS = [hub.color, "#3B8BEB", "#2EC27E", "#E8A020", "#9B59B6"];
+
+  const networkCompositionData = [
+    { name: "Active", value: hub.fellows, color: hub.color },
+    { name: "Incoming", value: hub.incomingFellows, color: "#3B8BEB" },
+    { name: "Alumni", value: hub.alumniLeaders, color: "#9B59B6" },
+  ].filter((d) => d.value > 0);
+
+  const genderData = [...hub.rawCohorts]
+    .filter((c) => !c.isVirtual && c.maleCount != null && c.femaleCount != null && c.maleCount + c.femaleCount > 0)
+    .sort((a, b) => (a.cohortYear ?? 0) - (b.cohortYear ?? 0))
+    .map((c) => ({ name: c.label, Male: c.maleCount!, Female: c.femaleCount! }));
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -306,17 +311,26 @@ function CountryDashboard({ hub }: { hub: HubView }) {
       <section style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
         <StatBox label="Active Fellows" value={hub.fellows} accent={hub.color} icon={<IconUsers size={18} />} />
         <StatBox label="Alumni" value={hub.alumniLeaders} accent="#9B59B6" icon={<IconBuildingCommunity size={18} />} />
-        <StatBox label="Total Network" value={hub.totalNetwork} accent="#2EC27E" icon={<IconGlobe size={18} />} />
+        <StatBox label="Total Recruited" value={hub.totalNetwork} accent="#2EC27E" icon={<IconGlobe size={18} />} />
         <StatBox label="Institutions" value={hub.institutions} accent="#E8A020" icon={<IconSchool size={18} />} />
       </section>
 
+      <CountrySummaryPanel cohorts={hub.rawCohorts} mcfRows={hub.mcfRows} accent={hub.color} />
+
+      <CountryInsights cohorts={hub.rawCohorts} accent={hub.color} />
+
       <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div className="gc" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, height: 280 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
-            Fellows & Retention by Cohort
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
+              Recruited vs Graduated by Cohort
+            </div>
+            <div style={{ fontSize: 11, color: "var(--emuted)", fontFamily: "var(--font)", marginTop: 2 }}>
+              In-progress cohorts show no graduates yet.
+            </div>
           </div>
           {cohortData.length === 0 ? (
-            <EmptyPanel title="No cohort data yet" message="Cohort bars will appear when fellows and retention data are entered." />
+            <EmptyPanel title="No cohort data yet" message="Cohort bars will appear once cohorts and their counts are entered." />
           ) : (
             <div style={{ flex: 1, minHeight: 0, minWidth: 0, width: "100%" }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -324,8 +338,8 @@ function CountryDashboard({ hub }: { hub: HubView }) {
                   <XAxis dataKey="name" stroke="var(--emuted)" fontSize={11} tickLine={false} axisLine={false} />
                   <YAxis stroke="var(--emuted)" fontSize={11} tickLine={false} axisLine={false} />
                   <Tooltip content={<CustomTooltip />} cursor={{ fill: "var(--eborder)" }} />
-                  <Bar dataKey="Fellows" fill={hub.color} radius={[4, 4, 0, 0]} barSize={16} />
-                  <Bar dataKey="Retained" fill="#2EC27E" radius={[4, 4, 0, 0]} barSize={16} />
+                  <Bar dataKey="Recruited" fill={hub.color} radius={[4, 4, 0, 0]} barSize={14} />
+                  <Bar dataKey="Graduated" fill="#3B8BEB" radius={[4, 4, 0, 0]} barSize={14} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -333,39 +347,37 @@ function CountryDashboard({ hub }: { hub: HubView }) {
         </div>
 
         <div className="gc" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, height: 280 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
-            Program Distribution
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
+              Gender Balance by Cohort
+            </div>
+            <div style={{ fontSize: 11, color: "var(--emuted)", fontFamily: "var(--font)", marginTop: 2 }}>
+              The %M / %F split reported to the Foundation, cohort by cohort.
+            </div>
           </div>
-          {pieData.length === 0 ? (
-            <EmptyPanel title="No programs yet" message="Program share will show once programs are added for this hub." />
+          {genderData.length === 0 ? (
+            <EmptyPanel title="No gender data yet" message="Import Country Stats or enter male/female counts per cohort." />
           ) : (
             <>
               <div style={{ flex: 1, minHeight: 0, minWidth: 0, width: "100%" }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {pieData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<CustomTooltip />} />
-                  </PieChart>
+                  <BarChart data={genderData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="name" stroke="var(--emuted)" fontSize={11} tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--emuted)" fontSize={11} tickLine={false} axisLine={false} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: "var(--eborder)" }} />
+                    <Bar dataKey="Male" stackId="gender" fill={hub.color} barSize={16} />
+                    <Bar dataKey="Female" stackId="gender" fill="#9B59B6" radius={[4, 4, 0, 0]} barSize={16} />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap", marginTop: -10 }}>
-                {pieData.map((entry, index) => (
-                  <div key={entry.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 2, background: COLORS[index % COLORS.length] }} />
-                    <span style={{ fontSize: 11, color: "var(--emuted)" }}>{entry.name}</span>
+              <div style={{ display: "flex", justifyContent: "center", gap: 14, flexWrap: "wrap" }}>
+                {[
+                  { label: "Male", color: hub.color },
+                  { label: "Female", color: "#9B59B6" },
+                ].map((entry) => (
+                  <div key={entry.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: entry.color }} />
+                    <span style={{ fontSize: 11, color: "var(--emuted)" }}>{entry.label}</span>
                   </div>
                 ))}
               </div>
@@ -376,37 +388,44 @@ function CountryDashboard({ hub }: { hub: HubView }) {
 
       <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div className="gc" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, minHeight: 220 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
-            Cohort Breakdown
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
+              Cohort Breakdown
+            </div>
+            {hub.cohorts.length > 0 && (
+              <Link
+                href={`/dashboard/countries/${hub.id}/cohorts` as never}
+                style={{
+                  fontSize: 11, fontWeight: 600, color: hub.color, fontFamily: "var(--font)", textDecoration: "none",
+                  display: "flex", alignItems: "center", gap: 3,
+                }}
+              >
+                See all <IconArrowUpRight size={12} />
+              </Link>
+            )}
           </div>
           {hub.cohorts.length === 0 ? (
-            <EmptyPanel title="No cohorts" message="Add cohorts to track fellows, retention, and graduation." />
+            <EmptyPanel title="No cohorts" message="Add cohorts to track fellows, graduation, and gender balance." />
           ) : (
             <>
               <div style={{
                 display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, padding: "0 4px",
                 fontSize: 9, color: "var(--emuted)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font)",
               }}>
-                <span>Cohort</span><span>Fellows</span><span>Retained</span><span>Graduated</span>
+                <span>Cohort</span><span>Fellows</span><span>Graduated</span><span>Female %</span>
               </div>
-              {hub.cohorts.map((c) => (
+              {hub.cohorts.slice(0, 5).map((c) => (
                 <div key={c.year} style={{
                   display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, padding: "10px 8px",
                   background: "var(--eglass)", borderRadius: 8, border: "1px solid var(--eborder)", alignItems: "center",
                 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: hub.color, fontFamily: "var(--font)" }}>{c.year}</span>
                   <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>{c.fellows}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--eborder)" }}>
-                      <div style={{
-                        width: `${c.fellows ? Math.round((c.placed / c.fellows) * 100) : 0}%`,
-                        height: "100%", borderRadius: 2, background: "#2EC27E",
-                      }} />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--emuted)", fontFamily: "var(--font)" }}>{c.placed}</span>
-                  </div>
                   <span style={{ fontSize: 12, fontWeight: 500, fontFamily: "var(--font)", color: c.graduated > 0 ? "var(--ewhite)" : "var(--emuted)" }}>
                     {c.graduated > 0 ? c.graduated : "In progress"}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, fontFamily: "var(--font)", color: c.femalePct != null ? "var(--ewhite)" : "var(--emuted)" }}>
+                    {c.femalePct != null ? `${c.femalePct}%` : "—"}
                   </span>
                 </div>
               ))}
@@ -415,34 +434,41 @@ function CountryDashboard({ hub }: { hub: HubView }) {
         </div>
 
         <div className="gc" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12, minHeight: 220 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>Programs</div>
-            <span style={{
-              fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: "var(--rf)",
-              background: `${hub.color}15`, color: hub.color, fontFamily: "var(--font)", border: `1px solid ${hub.color}30`,
-            }}>
-              {hub.activePrograms} Active
-            </span>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
+            Network Composition
           </div>
-          {hub.projects.length === 0 ? (
-            <EmptyPanel title="No programs" message="Programs created for this country will list here." />
+          {networkCompositionData.length === 0 ? (
+            <EmptyPanel title="No fellows yet" message="Active, incoming, and alumni counts will chart here once fellows are added." />
           ) : (
-            hub.projects.map((p) => (
-              <div key={p.name} style={{
-                padding: "12px 14px", background: "var(--eglass)", borderRadius: 10, border: "1px solid var(--eborder)",
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-              }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>{p.name}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10, color: "var(--emuted)", fontFamily: "var(--font)", marginTop: 3 }}>
-                    <span>{p.fellows > 0 ? `${p.fellows} fellows` : "TBC"}</span>
-                    <span style={{ opacity: 0.3 }}>·</span>
-                    <span>Started {p.startDate}</span>
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie
+                    data={networkCompositionData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={40}
+                    outerRadius={68}
+                    paddingAngle={2}
+                  >
+                    {networkCompositionData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: "var(--epanel)", border: "1px solid var(--eborder)", borderRadius: 8, fontSize: 12 }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
+                {networkCompositionData.map((entry) => (
+                  <div key={entry.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: entry.color }} />
+                    <span style={{ fontSize: 11, color: "var(--emuted)" }}>{entry.name} ({entry.value})</span>
                   </div>
-                </div>
-                <StatusDot status={p.status} />
+                ))}
               </div>
-            ))
+            </>
           )}
         </div>
       </section>
@@ -547,6 +573,7 @@ function fromMock(country: CountryData, id: string): HubView {
     color: country.color,
     flagSrc: flagImageUrl(id, 80),
     fellows: country.fellows,
+    incomingFellows: 0,
     alumniLeaders: country.alumni,
     totalNetwork: country.fellows + country.alumni,
     institutions: country.institutions,
@@ -558,7 +585,9 @@ function fromMock(country: CountryData, id: string): HubView {
     upcomingEventsCount: country.events.length,
     cohortCount: country.cohorts.length,
     representatives: 0,
-    cohorts: country.cohorts,
+    cohorts: country.cohorts.map((c) => ({ ...c, femalePct: null })),
+    rawCohorts: [],
+    mcfRows: [],
     projects: country.projects,
     recentUpdates: country.recentUpdates,
     events: country.events.map((e, i) => ({ ...e, id: String(i) })),
@@ -584,6 +613,7 @@ function emptyFromLive(live: {
     color: live.color,
     flagSrc: iso2 ? flagImageUrl(iso2, 80) : "",
     fellows: 0,
+    incomingFellows: 0,
     alumniLeaders: 0,
     totalNetwork: 0,
     institutions: 0,
@@ -596,6 +626,8 @@ function emptyFromLive(live: {
     cohortCount: 0,
     representatives: 0,
     cohorts: [],
+    rawCohorts: [],
+    mcfRows: [],
     projects: [],
     recentUpdates: [],
     events: [],
@@ -613,9 +645,10 @@ function buildLiveHub(
     flag?: string;
   },
   data: {
-    fellows?: { activeFellows: number; alumniLeaders: number; totalNetwork: number };
-    cohorts?: { items: Array<{ label: string; cohortYear: number | null; totalFellows: number; placed: number; alumniFellows: number; inProgress: boolean }> };
-    cohortsAgg?: { cohortCount: number; totalFellows: number; totalPlaced: number };
+    fellows?: { activeFellows: number; alumniLeaders: number; totalNetwork: number; incomingFellows?: number };
+    cohorts?: { items: Array<InsightCohort & { alumniFellows: number; inProgress: boolean }> };
+    mcfStats?: { items: McfStatRow[] };
+    cohortsAgg?: { cohortCount: number; totalFellows: number; totalPlaced: number | null; totalGraduated: number };
     programs?: { items: Array<{ title: string; status: string; totalFellows: number; startYear: number | null }> };
     programsAgg?: { activePrograms: number };
     partners?: { activePartners: number };
@@ -627,6 +660,7 @@ function buildLiveHub(
 ): HubView {
   const base = emptyFromLive(live);
   const cohortItems = data.cohorts?.items ?? [];
+  const mcfItems = data.mcfStats?.items ?? [];
   const programItems = data.programs?.items ?? [];
   const upcomingEvents = (data.events?.items ?? []).slice(0, 5);
 
@@ -635,6 +669,10 @@ function buildLiveHub(
     fellows: c.totalFellows,
     placed: c.placed,
     graduated: c.inProgress ? 0 : c.alumniFellows,
+    femalePct:
+      c.maleCount != null && c.femaleCount != null && c.maleCount + c.femaleCount > 0
+        ? Math.round((c.femaleCount / (c.maleCount + c.femaleCount)) * 100)
+        : null,
     inProgress: c.inProgress,
   }));
 
@@ -669,15 +707,22 @@ function buildLiveHub(
   }
 
   const fellows = data.fellows?.activeFellows ?? 0;
-  // Network alumni count from fellows roster (status = alumni), not featured leaders.
-  const alumni = data.fellows?.alumniLeaders ?? 0;
-  const totalNetwork = fellows + alumni;
+  const incomingFellows = data.fellows?.incomingFellows ?? 0;
+  // "Alumni" here means graduates — the cohort-stats total, not a count of
+  // fellows whose roster status happens to be "alumni" (most countries never
+  // enter individual alumni rows, so that count reads as a false zero).
+  const alumni = data.cohortsAgg?.totalGraduated ?? 0;
+  // "Total Network" is total ever recruited across all cohorts, matching the
+  // Country Stats Summary panel — not active+alumni, which undercounts by
+  // however many cohorts the fellows roster was never fully entered for.
+  const totalNetwork = data.cohortsAgg?.totalFellows ?? 0;
   const totalFellows = data.cohortsAgg?.totalFellows ?? 0;
   const placed = data.cohortsAgg?.totalPlaced ?? 0;
 
   return {
     ...base,
     fellows,
+    incomingFellows,
     alumniLeaders: alumni,
     totalNetwork,
     institutions: data.partners?.activePartners ?? 0,
@@ -690,6 +735,8 @@ function buildLiveHub(
     cohortCount: data.cohortsAgg?.cohortCount ?? cohortItems.length,
     representatives: data.alumniLeaders?.representatives ?? 0,
     cohorts,
+    rawCohorts: cohortItems,
+    mcfRows: mcfItems,
     projects,
     recentUpdates,
     events: upcomingEvents.map((e) => ({ id: e.id, title: e.title, date: formatEventDate(e.startsAt) })),
@@ -716,6 +763,10 @@ export default function CountryOverviewPage() {
   });
   const cohortsQuery = useQuery({
     ...trpc.cohorts.list.queryOptions({ tenantId }),
+    enabled: queryEnabled,
+  });
+  const mcfStatsQuery = useQuery({
+    ...trpc.cohorts.mcfStats.queryOptions({ tenantId }),
     enabled: queryEnabled,
   });
   const cohortsAggQuery = useQuery({
@@ -762,6 +813,7 @@ export default function CountryOverviewPage() {
     return buildLiveHub(liveQuery.data, {
       fellows: fellowsQuery.data,
       cohorts: cohortsQuery.data,
+      mcfStats: mcfStatsQuery.data,
       cohortsAgg: cohortsAggQuery.data,
       programs: programsQuery.data,
       programsAgg: programsAggQuery.data,
@@ -776,6 +828,7 @@ export default function CountryOverviewPage() {
     liveQuery.data,
     fellowsQuery.data,
     cohortsQuery.data,
+    mcfStatsQuery.data,
     cohortsAggQuery.data,
     programsQuery.data,
     programsAggQuery.data,

@@ -245,6 +245,8 @@
   --e-text-sec: rgba(0, 0, 0, 0.45);
   --eborder: rgba(0, 0, 0, 0.08);
   --eglass:  rgba(255, 255, 255, 0.55);
+  --eglass-alt: rgba(0, 0, 0, 0.02);
+  --eglass-hover: rgba(0, 40, 130, 0.05);
   --gdark:   #e5e7eb;
 }
 
@@ -256,6 +258,8 @@
   --gborder: rgba(255, 255, 255, 0.10);
   --eborder: rgba(255, 255, 255, 0.12);
   --eglass:  rgba(255, 255, 255, 0.04);
+  --eglass-alt: rgba(255, 255, 255, 0.015);
+  --eglass-hover: rgba(255, 255, 255, 0.08);
   --gdark:   rgba(15, 23, 42, 0.9);
 }
 .epl-shell.epl-light {
@@ -1180,7 +1184,7 @@ button.epl-nav-item {
 }
 .rm-hub-head {
   display: grid;
-  grid-template-columns: minmax(200px, 2fr) 80px 90px 110px 28px;
+  grid-template-columns: minmax(200px, 2fr) 80px 90px 110px 84px 28px;
   gap: 12px;
   padding: 0 14px 8px;
   font-size: 10px;
@@ -1191,7 +1195,7 @@ button.epl-nav-item {
 }
 .rm-hub-row {
   display: grid;
-  grid-template-columns: minmax(200px, 2fr) 80px 90px 110px 28px;
+  grid-template-columns: minmax(200px, 2fr) 80px 90px 110px 84px 28px;
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
@@ -1201,6 +1205,41 @@ button.epl-nav-item {
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.rm-hub-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rm-hub-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--emuted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.rm-hub-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--ewhite);
+}
+.rm-hub-action-btn.is-danger:hover:not(:disabled) {
+  background: rgba(224, 92, 92, 0.15);
+  border-color: rgba(224, 92, 92, 0.4);
+  color: #E05C5C;
+}
+.rm-hub-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.epl-light .rm-hub-action-btn {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 .rm-hub-row:hover {
   border-color: rgba(255, 255, 255, 0.14);
@@ -1634,6 +1673,156 @@ button.epl-nav-item {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
+.nm-status-pill.is-incoming {
+  color: #f7d488;
+  background: rgba(217, 164, 6, 0.14);
+  border: 1px solid rgba(217, 164, 6, 0.28);
+}
+
+/* ── Country Stats table ─────────────────────────────────── */
+.cs-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 13px;
+  background: rgba(120, 130, 160, 0.12);
+  border: 1px solid var(--eborder);
+  align-self: flex-start;
+}
+.cs-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ewhite);
+  opacity: 0.6;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
+}
+.cs-tab:hover:not(.is-active) {
+  opacity: 0.85;
+  background: rgba(120, 130, 160, 0.16);
+}
+.cs-tab.is-active {
+  opacity: 1;
+  background: var(--tab-accent, #4150A3);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+.epl-light .cs-tab {
+  color: var(--e-text-pri);
+}
+.epl-light .cs-tab:hover:not(.is-active) {
+  background: rgba(0, 0, 0, 0.06);
+}
+.epl-light .cs-tab.is-active {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+.cs-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  margin-left: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(59, 139, 235, 0.22);
+  border: 1px solid rgba(59, 139, 235, 0.4);
+  color: #3B8BEB;
+  font-size: 10px;
+  font-weight: 800;
+}
+.cs-tab.is-active .cs-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+.cs-group-row {
+  padding: 0 12px;
+}
+.cs-group-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--emuted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--eborder);
+}
+.cs-header-row {
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--eborder);
+}
+.cs-row {
+  background: var(--eglass);
+  border: 1px solid var(--eborder);
+  border-radius: 10px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.cs-row.is-alt {
+  background: var(--eglass-alt);
+}
+.cs-row:hover {
+  background: var(--eglass-hover);
+  border-color: var(--gborder2, var(--eborder));
+}
+.cs-cell-muted {
+  color: var(--emuted) !important;
+  opacity: 0.6;
+}
+.cs-year-pill {
+  display: inline-flex;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--eborder);
+  font-weight: 700;
+}
+.epl-light .cs-year-pill {
+  background: rgba(0, 0, 0, 0.04);
+}
+.cs-attrition-pill {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(232, 160, 32, 0.14);
+  border: 1px solid rgba(232, 160, 32, 0.3);
+  color: #E8A020;
+  font-weight: 800;
+}
+.cs-attrition-pill.is-empty {
+  background: transparent;
+  border-color: transparent;
+  color: var(--emuted);
+  font-weight: 500;
+  opacity: 0.6;
+}
+.rm-ghost.nm-danger-action {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+.rm-ghost.nm-danger-action:hover:not(:disabled) {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+.epl-light .rm-ghost.nm-danger-action,
+.light .rm-ghost.nm-danger-action {
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+.epl-light .rm-ghost.nm-danger-action:hover:not(:disabled),
+.light .rm-ghost.nm-danger-action:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
 .nm-row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2064,6 +2253,12 @@ button.epl-nav-item {
   color: #047857;
   background: #D1FAE5;
   border: 1px solid #10B981;
+}
+.epl-light .nm-status-pill.is-incoming,
+.light .nm-status-pill.is-incoming {
+  color: #92400E;
+  background: #FEF3C7;
+  border: 1px solid #D97706;
 }
 @media (max-width: 800px) {
   .pm-health-summary-grid {
@@ -3431,6 +3626,91 @@ a.rm-primary {
   background: rgba(0, 0, 0, 0.03);
   border-top-color: rgba(0, 0, 0, 0.08);
 }
+.epl-confirm-root {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.epl-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.55);
+}
+.epl-confirm-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 26px;
+  border-radius: 16px;
+  background: rgba(22, 24, 32, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  font-family: var(--font);
+  animation: epl-confirm-in 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes epl-confirm-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.epl-confirm-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(65, 80, 163, 0.15);
+  border: 1px solid rgba(65, 80, 163, 0.35);
+  color: #4150A3;
+  margin-bottom: 4px;
+}
+.epl-confirm-icon.is-danger {
+  background: rgba(224, 92, 92, 0.15);
+  border-color: rgba(224, 92, 92, 0.35);
+  color: #E05C5C;
+}
+.epl-confirm-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ewhite);
+}
+.epl-confirm-message {
+  margin: 0;
+  font-size: 0.87rem;
+  line-height: 1.55;
+  color: var(--emuted);
+}
+.epl-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.epl-confirm-danger-btn {
+  background: #E05C5C !important;
+  border-color: #E05C5C !important;
+}
+.epl-confirm-danger-btn:hover {
+  background: #cf4f4f !important;
+}
+.epl-light .epl-confirm-card {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 24px 64px rgba(20, 30, 80, 0.18);
+}
+
 .epl-light .epl-slide-field input {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(0, 0, 0, 0.1);

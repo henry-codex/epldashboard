@@ -1,15 +1,17 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
-import { db, fellows, hubCohorts, placements } from "@epl-fellows-platform/db";
+import { db, fellows, hubCohorts, hubCohortMcfStats, placements, tenants } from "@epl-fellows-platform/db";
 import { router, protectedProcedure } from "../index";
 import { assertTenantAccess, resolveTenantId } from "../lib/tenant-access.js";
 import { assertNetworkManager, canViewNetworkRoster } from "../lib/network-access.js";
 import { assertTenantProgram } from "../lib/program-access.js";
 import { mergedCohortStats, parseCohortNumber } from "../lib/cohort-stats.js";
 import { parseCsv, serializeCsv } from "../lib/csv.js";
+import { FELLOW_STATUSES, type FellowStatus } from "../lib/fellow-status.js";
+import { parseCountryStatsSheet, detectStatsSheetKind } from "@epl-fellows-platform/db/lib/country-stats-import";
 
-const fellowStatusSchema = z.enum(["active", "alumni", "inactive"]);
+const fellowStatusSchema = z.enum(FELLOW_STATUSES);
 
 const COHORT_MEMBER_HEADERS = [
   "firstName",
@@ -61,7 +63,7 @@ function placementLabel(row: { institution: string | null; city: string | null; 
 
 function mapMember(
   row: typeof fellows.$inferSelect,
-  placement?: { institution: string; city: string; roleTitle: string; country: string } | null,
+  placement?: { institution: string; city: string | null; roleTitle: string | null; country: string } | null,
 ) {
   return {
     id: row.id,
@@ -71,7 +73,7 @@ function mapMember(
     phone: row.phone,
     gender: row.gender,
     program: row.program,
-    status: row.status as "active" | "alumni" | "inactive",
+    status: row.status as FellowStatus,
     cohortYear: row.cohortYear,
     source: row.source,
     updatedAt: row.updatedAt,
@@ -174,6 +176,18 @@ const cohortInputSchema = z.object({
   startedCount: z.number().int().min(0).max(10000).nullish(),
   graduatedCount: z.number().int().min(0).max(10000).nullish(),
   placedCount: z.number().int().min(0).max(10000).nullish(),
+  toBeRecruitedCount: z.number().int().min(0).max(10000).nullish(),
+  maleCount: z.number().int().min(0).max(10000).nullish(),
+  femaleCount: z.number().int().min(0).max(10000).nullish(),
+  pwdCount: z.number().int().min(0).max(10000).nullish(),
+  idpCount: z.number().int().min(0).max(10000).nullish(),
+  scholarCount: z.number().int().min(0).max(10000).nullish(),
+  attritionRatePercent: z.number().int().min(0).max(100).nullish(),
+  attritionMale: z.number().int().min(0).max(100).nullish(),
+  attritionFemale: z.number().int().min(0).max(100).nullish(),
+  attritionPwd: z.number().int().min(0).max(100).nullish(),
+  attritionIdp: z.number().int().min(0).max(100).nullish(),
+  isMcf: z.boolean().optional(),
   notes: z.string().max(2000).optional(),
   sortOrder: z.number().int().min(0).max(999).optional().default(0),
 });
@@ -192,10 +206,27 @@ function mapCohort(row: typeof hubCohorts.$inferSelect, merged: Awaited<ReturnTy
     timelineProgress: null as number | null,
     daysRemaining: null as number | null,
     status: row.status as "in_progress" | "completed",
-    statusLabel: row.status === "completed" ? "Completed" : "In progress",
+    statusLabel:
+      row.status === "completed"
+        ? "Completed"
+        : (row.graduatedCount ?? 0) === 0 && (row.startedCount ?? 0) > 0
+          ? "Incoming"
+          : "In progress",
     startedCount: row.startedCount,
     graduatedCount: row.graduatedCount,
     placedCount: row.placedCount,
+    toBeRecruitedCount: row.toBeRecruitedCount,
+    maleCount: row.maleCount,
+    femaleCount: row.femaleCount,
+    pwdCount: row.pwdCount,
+    idpCount: row.idpCount,
+    scholarCount: row.scholarCount,
+    attritionRatePercent: row.attritionRatePercent,
+    attritionMale: row.attritionMale,
+    attritionFemale: row.attritionFemale,
+    attritionPwd: row.attritionPwd,
+    attritionIdp: row.attritionIdp,
+    isMcf: row.isMcf ?? false,
     totalFellows: row.startedCount ?? 0,
     activeFellows: 0,
     alumniFellows: row.graduatedCount ?? 0,
@@ -224,10 +255,20 @@ export const cohortsRouter = router({
       let totalPlaced = 0;
       let totalGraduated = 0;
       let inProgress = 0;
+      let anyRetentionConfirmed = false;
 
       for (const item of items) {
         totalFellows += item.totalFellows;
-        totalPlaced += item.placed;
+        // Post-program retention only counts once a cohort has actually
+        // completed and a manager has confirmed a retained count — item.placed
+        // falls back to "currently has an active placement" for in-progress
+        // cohorts, which is a different thing (in-program institution
+        // assignment) and would otherwise inflate this into a false "Retained"
+        // total made up entirely of fellows who haven't graduated yet.
+        if (!item.inProgress && item.placedCount != null) {
+          totalPlaced += item.placedCount;
+          anyRetentionConfirmed = true;
+        }
         totalGraduated += item.alumniFellows;
         if (item.inProgress) inProgress += 1;
       }
@@ -235,7 +276,7 @@ export const cohortsRouter = router({
       return {
         cohortCount: items.length,
         totalFellows,
-        totalPlaced,
+        totalPlaced: anyRetentionConfirmed ? totalPlaced : null,
         totalGraduated,
         inProgressCohorts: inProgress,
         fellowsInProgress: items.reduce((sum, item) => sum + item.activeFellows, 0),
@@ -297,6 +338,18 @@ export const cohortsRouter = router({
             startedCount: input.startedCount ?? null,
             graduatedCount: input.graduatedCount ?? null,
             placedCount: input.placedCount ?? null,
+            toBeRecruitedCount: input.toBeRecruitedCount ?? null,
+            maleCount: input.maleCount ?? null,
+            femaleCount: input.femaleCount ?? null,
+            pwdCount: input.pwdCount ?? null,
+            idpCount: input.idpCount ?? null,
+            scholarCount: input.scholarCount ?? null,
+            attritionRatePercent: input.attritionRatePercent ?? null,
+            attritionMale: input.attritionMale ?? null,
+            attritionFemale: input.attritionFemale ?? null,
+            attritionPwd: input.attritionPwd ?? null,
+            attritionIdp: input.attritionIdp ?? null,
+            isMcf: input.isMcf ?? false,
             notes: input.notes?.trim() || null,
             sortOrder: input.sortOrder ?? cohortNumber ?? 0,
           })
@@ -354,6 +407,18 @@ export const cohortsRouter = router({
       if (input.startedCount !== undefined) patch.startedCount = input.startedCount;
       if (input.graduatedCount !== undefined) patch.graduatedCount = input.graduatedCount;
       if (input.placedCount !== undefined) patch.placedCount = input.placedCount;
+      if (input.toBeRecruitedCount !== undefined) patch.toBeRecruitedCount = input.toBeRecruitedCount;
+      if (input.maleCount !== undefined) patch.maleCount = input.maleCount;
+      if (input.femaleCount !== undefined) patch.femaleCount = input.femaleCount;
+      if (input.pwdCount !== undefined) patch.pwdCount = input.pwdCount;
+      if (input.idpCount !== undefined) patch.idpCount = input.idpCount;
+      if (input.scholarCount !== undefined) patch.scholarCount = input.scholarCount;
+      if (input.attritionRatePercent !== undefined) patch.attritionRatePercent = input.attritionRatePercent;
+      if (input.attritionMale !== undefined) patch.attritionMale = input.attritionMale;
+      if (input.attritionFemale !== undefined) patch.attritionFemale = input.attritionFemale;
+      if (input.attritionPwd !== undefined) patch.attritionPwd = input.attritionPwd;
+      if (input.attritionIdp !== undefined) patch.attritionIdp = input.attritionIdp;
+      if (input.isMcf !== undefined) patch.isMcf = input.isMcf;
       if (input.notes !== undefined) patch.notes = input.notes?.trim() || null;
       if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
 
@@ -468,7 +533,11 @@ export const cohortsRouter = router({
       } else if (input.status) {
         filters.push(eq(fellows.status, input.status));
       } else {
-        filters.push(eq(fellows.status, "active"));
+        // Not completed yet — the roster is whoever Network already has for
+        // this cohort year, active or incoming. Defaulting to "active" only
+        // hid every fellow in a cohort that hasn't started (all "incoming"),
+        // showing an empty list when Network actually has the full roster.
+        filters.push(inArray(fellows.status, ["active", "incoming"]));
       }
       if (input.search?.trim()) {
         const q = `%${input.search.trim()}%`;
@@ -671,6 +740,247 @@ export const cohortsRouter = router({
       return { created, updated, errors, cohortYear: cohort.cohortYear };
     }),
 
+  // Imports the workbook's "All Stats" tab — one file with every country's
+  // cohort planning numbers stacked in blocks. A country manager uploads
+  // this same file unedited; we read only the block matching their hub's
+  // name (attrition rates and "Total to be Recruited" have no per-fellow
+  // source, so they can only ever come from here). Counts that a fellow
+  // roster import can already derive more accurately (male/female/pwd/idp/
+  // scholar/started/graduated) are only overwritten on an existing cohort
+  // when that field is still empty — a value already there is trusted as
+  // real fellow-derived data and left alone, but a genuine gap (a cohort
+  // record that predates any roster import) gets filled in rather than
+  // staying blank forever just because the row already existed.
+  importStats: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid(), csv: z.string().min(1).max(2_000_000) }))
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+      if (!tenant) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Hub not found" });
+      }
+
+      // The two tabs look identical to the parser, so without this check an
+      // MCF upload would silently overwrite the country-wide figures with
+      // the Foundation-funded subset.
+      if (detectStatsSheetKind(input.csv) === "mcf") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This is the MCF Stats sheet. Import it from the MCF Stats tab so it doesn't overwrite your country-wide figures.",
+        });
+      }
+
+      const { cohorts: parsedRows, warnings } = parseCountryStatsSheet(input.csv, tenant.name);
+      if (parsedRows.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            warnings[0] ??
+            `No cohort rows found for "${tenant.name}" in this file. Upload the workbook's All Stats sheet unedited.`,
+        });
+      }
+
+      const existingCohorts = await db.query.hubCohorts.findMany({ where: eq(hubCohorts.tenantId, tenantId) });
+      const byYear = new Map(existingCohorts.filter((c) => c.cohortYear != null).map((c) => [c.cohortYear!, c]));
+
+      let created = 0;
+      let updated = 0;
+
+      for (const row of parsedRows) {
+        const existing = byYear.get(row.cohortYear);
+        if (existing) {
+          const fillIfEmpty = <K extends keyof typeof existing>(key: K, value: (typeof existing)[K]) =>
+            existing[key] == null ? value : undefined;
+
+          const patch = {
+            toBeRecruitedCount: row.toBeRecruitedCount,
+            attritionRatePercent: row.attritionRatePercent,
+            attritionMale: row.attritionMale,
+            attritionFemale: row.attritionFemale,
+            attritionPwd: row.attritionPwd,
+            attritionIdp: row.attritionIdp,
+            startedCount: fillIfEmpty("startedCount", row.startedCount),
+            graduatedCount: fillIfEmpty("graduatedCount", row.graduatedCount),
+            maleCount: fillIfEmpty("maleCount", row.maleCount),
+            femaleCount: fillIfEmpty("femaleCount", row.femaleCount),
+            pwdCount: fillIfEmpty("pwdCount", row.pwdCount),
+            idpCount: fillIfEmpty("idpCount", row.idpCount),
+            scholarCount: fillIfEmpty("scholarCount", row.scholarCount),
+            updatedAt: new Date(),
+          };
+          const definedPatch = Object.fromEntries(
+            Object.entries(patch).filter(([, v]) => v !== undefined),
+          ) as Partial<typeof hubCohorts.$inferInsert>;
+
+          await db.update(hubCohorts).set(definedPatch).where(eq(hubCohorts.id, existing.id));
+          updated += 1;
+        } else {
+          await db.insert(hubCohorts).values({
+            tenantId,
+            label: row.label,
+            cohortNumber: row.cohortNumber,
+            cohortYear: row.cohortYear,
+            status: row.lifecycleStatus === "alumni" ? "completed" : "in_progress",
+            sortOrder: row.cohortYear,
+            startedCount: row.startedCount,
+            graduatedCount: row.graduatedCount,
+            toBeRecruitedCount: row.toBeRecruitedCount,
+            maleCount: row.maleCount,
+            femaleCount: row.femaleCount,
+            pwdCount: row.pwdCount,
+            idpCount: row.idpCount,
+            scholarCount: row.scholarCount,
+            attritionRatePercent: row.attritionRatePercent,
+            attritionMale: row.attritionMale,
+            attritionFemale: row.attritionFemale,
+            attritionPwd: row.attritionPwd,
+            attritionIdp: row.attritionIdp,
+          });
+          created += 1;
+        }
+      }
+
+      return { created, updated, warnings };
+    }),
+
+  /** The Foundation's own reported figures per cohort (MCF_Stats tab). */
+  mcfStats: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const rows = await db
+        .select({
+          id: hubCohortMcfStats.id,
+          cohortId: hubCohorts.id,
+          label: hubCohorts.label,
+          cohortYear: hubCohorts.cohortYear,
+          status: hubCohorts.status,
+          startedCount: hubCohortMcfStats.startedCount,
+          graduatedCount: hubCohortMcfStats.graduatedCount,
+          toBeRecruitedCount: hubCohortMcfStats.toBeRecruitedCount,
+          maleCount: hubCohortMcfStats.maleCount,
+          femaleCount: hubCohortMcfStats.femaleCount,
+          pwdCount: hubCohortMcfStats.pwdCount,
+          idpCount: hubCohortMcfStats.idpCount,
+          scholarCount: hubCohortMcfStats.scholarCount,
+          attritionRatePercent: hubCohortMcfStats.attritionRatePercent,
+          attritionMale: hubCohortMcfStats.attritionMale,
+          attritionFemale: hubCohortMcfStats.attritionFemale,
+          attritionPwd: hubCohortMcfStats.attritionPwd,
+          attritionIdp: hubCohortMcfStats.attritionIdp,
+          // The country-wide figure for the same cohort, so the UI can show
+          // where the Foundation's slice differs from the hub's own total.
+          hubStartedCount: hubCohorts.startedCount,
+        })
+        .from(hubCohortMcfStats)
+        .innerJoin(hubCohorts, eq(hubCohortMcfStats.cohortId, hubCohorts.id))
+        .where(eq(hubCohortMcfStats.tenantId, tenantId))
+        .orderBy(desc(hubCohorts.cohortYear));
+
+      return { items: rows };
+    }),
+
+  // Imports the workbook's "MCF_Stats" tab. Structurally identical to the
+  // All Stats sheet but scoped to the Foundation-funded slice, so it lands
+  // in its own table instead of overwriting the country-wide numbers. Only
+  // cohorts that already exist for this hub are matched — this sheet is a
+  // reporting overlay, not a source of new cohorts.
+  importMcfStats: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid(), csv: z.string().min(1).max(2_000_000) }))
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+      if (!tenant) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Hub not found" });
+      }
+
+      if (detectStatsSheetKind(input.csv) === "all") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This is the All Stats sheet, not the MCF one. Import it from the All Stats tab.",
+        });
+      }
+
+      const { cohorts: parsedRows, warnings } = parseCountryStatsSheet(input.csv, tenant.name);
+      if (parsedRows.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            warnings[0] ??
+            `No Mastercard Foundation cohorts found for "${tenant.name}" in this file.`,
+        });
+      }
+
+      const existingCohorts = await db.query.hubCohorts.findMany({ where: eq(hubCohorts.tenantId, tenantId) });
+      const byYear = new Map(existingCohorts.filter((c) => c.cohortYear != null).map((c) => [c.cohortYear!, c]));
+      const existingMcf = await db.query.hubCohortMcfStats.findMany({
+        where: eq(hubCohortMcfStats.tenantId, tenantId),
+      });
+      const mcfByCohortId = new Map(existingMcf.map((row) => [row.cohortId, row]));
+
+      const skipped: string[] = [];
+      let created = 0;
+      let updated = 0;
+
+      for (const row of parsedRows) {
+        const cohort = byYear.get(row.cohortYear);
+        if (!cohort) {
+          skipped.push(`${row.label} (${row.cohortYear})`);
+          continue;
+        }
+
+        const values = {
+          startedCount: row.startedCount,
+          graduatedCount: row.graduatedCount,
+          toBeRecruitedCount: row.toBeRecruitedCount,
+          maleCount: row.maleCount,
+          femaleCount: row.femaleCount,
+          pwdCount: row.pwdCount,
+          idpCount: row.idpCount,
+          scholarCount: row.scholarCount,
+          attritionRatePercent: row.attritionRatePercent,
+          attritionMale: row.attritionMale,
+          attritionFemale: row.attritionFemale,
+          attritionPwd: row.attritionPwd,
+          attritionIdp: row.attritionIdp,
+        };
+
+        const existing = mcfByCohortId.get(cohort.id);
+        if (existing) {
+          await db
+            .update(hubCohortMcfStats)
+            .set({ ...values, updatedAt: new Date() })
+            .where(eq(hubCohortMcfStats.id, existing.id));
+          updated += 1;
+        } else {
+          await db.insert(hubCohortMcfStats).values({ tenantId, cohortId: cohort.id, ...values });
+          created += 1;
+        }
+
+        // Appearing in this sheet is itself the signal that the cohort is
+        // Foundation-funded, so keep the hub cohort's flag in step.
+        if (!cohort.isMcf) {
+          await db.update(hubCohorts).set({ isMcf: true }).where(eq(hubCohorts.id, cohort.id));
+        }
+      }
+
+      if (skipped.length > 0) {
+        warnings.push(
+          `No matching cohort in this hub for: ${skipped.join(", ")}. Add the cohort first, then re-import.`,
+        );
+      }
+
+      return { created, updated, warnings };
+    }),
+
   exportMembers: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid(), cohortId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -702,7 +1012,7 @@ export const cohortsRouter = router({
         return {
           firstName: row.firstName,
           lastName: row.lastName,
-          email: row.email,
+          email: row.email ?? "",
           program: row.program,
           phone: row.phone ?? "",
           gender: row.gender ?? "",

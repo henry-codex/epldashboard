@@ -21,6 +21,7 @@ import {
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
 
 const STATUSES = [
@@ -105,6 +106,7 @@ function formatRate(value: number | null) {
 }
 
 export function ProgramsManager({ tenantId, hubName, accent, readOnly = false }: Props) {
+  const confirm = useConfirm();
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProgramForm>(EMPTY_FORM);
@@ -301,10 +303,10 @@ export function ProgramsManager({ tenantId, hubName, accent, readOnly = false }:
                   {program.description || "No description yet."}
                 </p>
                 <div className="pm-health-signals">
-                  <span className="pm-health-signal">Fill {program.fillRate ?? 0}%</span>
+                  <span className="pm-health-signal">Fill {program.fillRate != null ? `${program.fillRate}%` : "—"}</span>
                   <span className="pm-health-signal">
                     <IconMapPin size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
-                    Retention {formatRate(program.placementRate)}
+                    Placed {formatRate(program.placementRate)}
                   </span>
                 </div>
                 {program.healthReasons.filter((reason) => !/check-?in/i.test(reason)).length > 0 && (
@@ -343,10 +345,12 @@ export function ProgramsManager({ tenantId, hubName, accent, readOnly = false }:
               <div style={{ paddingLeft: 20, borderLeft: "1px solid var(--eborder)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emuted)", textTransform: "uppercase" }}>Target</span>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: accent }}>{program.progress}%</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: accent }}>
+                    {program.targetFellows > 0 ? `${program.progress}%` : "No target set"}
+                  </span>
                 </div>
                 <div style={{ width: "100%", height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 10, overflow: "hidden" }}>
-                  <div style={{ width: `${program.progress}%`, height: "100%", background: accent, borderRadius: 10 }} />
+                  <div style={{ width: `${program.targetFellows > 0 ? program.progress : 0}%`, height: "100%", background: accent, borderRadius: 10 }} />
                 </div>
                 <div style={{ fontSize: 11, color: "var(--emuted)", marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
                   <IconTarget size={12} /> {program.activeFellows} / {program.targetFellows || "—"} fellows
@@ -367,10 +371,14 @@ export function ProgramsManager({ tenantId, hubName, accent, readOnly = false }:
                   <button
                     type="button"
                     className="nm-row-action is-danger"
-                    onClick={() => {
-                      if (window.confirm(`Remove "${program.title}"?`)) {
-                        deleteMutation.mutate({ tenantId, id: program.id });
-                      }
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: "Remove program?",
+                        message: `Remove "${program.title}"?`,
+                        confirmLabel: "Remove",
+                        danger: true,
+                      });
+                      if (ok) deleteMutation.mutate({ tenantId, id: program.id });
                     }}
                   >
                     <IconTrash size={14} /> Delete

@@ -1,12 +1,11 @@
 "use client";
 
-import { IconStack2, IconUsers, IconMapPin, IconSchool, IconClock } from "@tabler/icons-react";
+import { IconStack2, IconUsers, IconSchool, IconClock } from "@tabler/icons-react";
 import type { CohortTimelineItem } from "@/components/epl/cohorts-timeline";
 
 type CardsProps = {
   cohortCount: number;
   totalAlumni: number;
-  totalPlaced: number;
   totalFellows?: number;
   inProgressCohorts?: number;
   fellowsInProgress?: number;
@@ -14,10 +13,12 @@ type CardsProps = {
   showPipeline?: boolean;
 };
 
+// Retention isn't a metric this platform measures yet — no country
+// confirms a post-graduation retained count, so it isn't shown here.
+// Rates are computed against graduated, not retained.
 export function CohortsMetricCards({
   cohortCount,
   totalAlumni,
-  totalPlaced,
   totalFellows = 0,
   inProgressCohorts = 0,
   fellowsInProgress = 0,
@@ -31,20 +32,18 @@ export function CohortsMetricCards({
         { label: "Started", value: totalFellows, hint: "All cohorts", accent: "#3B8BEB", icon: <IconSchool size={20} /> },
         { label: "In fellowship", value: fellowsInProgress, hint: "Active now", accent, icon: <IconUsers size={20} /> },
         { label: "Alumni", value: totalAlumni, hint: "Graduated", accent: "#9B59B6", icon: <IconUsers size={20} /> },
-        { label: "Retained", value: totalPlaced, hint: "After graduation", accent: "#2EC27E", icon: <IconMapPin size={20} /> },
       ]
     : [
         { label: "Cohorts", value: cohortCount, hint: undefined, accent, icon: <IconStack2 size={20} /> },
         { label: "Started", value: totalFellows, hint: undefined, accent: "#3B8BEB", icon: <IconSchool size={20} /> },
         { label: "Alumni", value: totalAlumni, hint: undefined, accent: "#9B59B6", icon: <IconUsers size={20} /> },
-        { label: "Retained", value: totalPlaced, hint: undefined, accent: "#2EC27E", icon: <IconMapPin size={20} /> },
       ];
 
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: showPipeline ? "repeat(3, 1fr)" : "repeat(4, 1fr)",
+        gridTemplateColumns: "repeat(3, 1fr)",
         gap: 14,
       }}
     >
@@ -101,7 +100,7 @@ export function CohortsBreakdownTable({
 }) {
   if (cohorts.length === 0) return null;
 
-  const columns = "1.2fr 0.9fr 1.4fr 0.7fr 0.9fr 0.7fr 0.7fr 0.8fr 0.8fr";
+  const columns = "1.2fr 0.9fr 1.4fr 0.7fr 0.9fr 0.7fr 0.8fr";
 
   return (
     <div className="gc" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10, overflowX: "auto" }}>
@@ -110,7 +109,7 @@ export function CohortsBreakdownTable({
           Cohort breakdown
         </div>
         <div style={{ fontSize: 12, color: "var(--emuted)", fontFamily: "var(--font)", marginTop: 4 }}>
-          Retention and graduation are shown after a cohort completes.
+          Graduation is shown after a cohort completes.
         </div>
       </div>
 
@@ -134,9 +133,7 @@ export function CohortsBreakdownTable({
         <span>Started</span>
         <span>In fellowship</span>
         <span>Alumni</span>
-        <span>Retained</span>
         <span>Graduation</span>
-        <span>Retention</span>
       </div>
 
       {cohorts.map((cohort) => {
@@ -176,14 +173,8 @@ export function CohortsBreakdownTable({
             <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
               {dash(cohort.alumniFellows, completed || cohort.alumniFellows > 0)}
             </span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
-              {dash(cohort.placed, completed)}
-            </span>
             <span style={{ fontSize: 12, fontWeight: 700, color: completed ? "#3B8BEB" : "var(--emuted)", fontFamily: "var(--font)" }}>
               {dash(`${cohort.graduationRate}%`, completed)}
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: completed ? "#2EC27E" : "var(--emuted)", fontFamily: "var(--font)" }}>
-              {dash(`${cohort.placementRate}%`, completed)}
             </span>
           </div>
         );

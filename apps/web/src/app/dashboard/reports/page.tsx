@@ -19,7 +19,6 @@ import {
 import {
   IconUsers,
   IconBuildingCommunity,
-  IconTrendingUp,
   IconChartBar,
   IconDeviceAnalytics,
   IconGlobe,
@@ -36,10 +35,6 @@ const chartTooltipStyle = {
   borderRadius: 12,
   color: "var(--ewhite)",
 };
-
-function formatRate(value: number | null | undefined, fallback = "—") {
-  return value != null ? `${value}%` : fallback;
-}
 
 export default function ReportsOverviewPage() {
   const overviewQuery = useQuery(trpc.platform.overview.queryOptions());
@@ -134,12 +129,6 @@ export default function ReportsOverviewPage() {
                   value: totals?.totalNetwork ?? 0,
                   color: "#2EC27E",
                   icon: <IconGlobe size={24} />,
-                },
-                {
-                  label: "Retention Rate",
-                  value: formatRate(totals?.placementRate),
-                  color: "#E8A020",
-                  icon: <IconTrendingUp size={24} />,
                 },
                 {
                   label: "MCF Fellows",
@@ -311,11 +300,11 @@ export default function ReportsOverviewPage() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr",
+                      gridTemplateColumns: "1.5fr 1fr 1fr 1fr",
                       gap: 12,
                       padding: "0 16px",
                       fontSize: 10,
-                      color: "rgba(255,255,255,0.30)",
+                      color: "var(--emuted)",
                       textTransform: "uppercase",
                       letterSpacing: "0.1em",
                       fontWeight: 800,
@@ -324,7 +313,6 @@ export default function ReportsOverviewPage() {
                     <span>NATION</span>
                     <span>FELLOWS</span>
                     <span>ALUMNI</span>
-                    <span>RETAINED</span>
                     <span>PROGRAMS</span>
                   </div>
 
@@ -340,7 +328,7 @@ export default function ReportsOverviewPage() {
                         key={c.id}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr",
+                          gridTemplateColumns: "1.5fr 1fr 1fr 1fr",
                           gap: 12,
                           padding: "16px",
                           alignItems: "center",
@@ -373,9 +361,6 @@ export default function ReportsOverviewPage() {
                         </span>
                         <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ewhite)" }}>
                           {c.alumniLeaders}
-                        </span>
-                        <span style={{ fontSize: 15, fontWeight: 600, color: "#2EC27E" }}>
-                          {c.placed}
                         </span>
                         <span style={{ fontSize: 15, fontWeight: 700, color: "var(--ewhite)" }}>
                           {c.programHealth.totalPrograms}

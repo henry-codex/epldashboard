@@ -83,6 +83,10 @@ export function computeProgramHealth(input: ProgramHealthInput): ProgramHealthRe
   } else if (input.activeFellows === 0 && input.programStatus === "active") {
     health = bumpSeverity(health, "needs_attention");
     reasons.push("Active program has no fellows enrolled yet");
+  } else {
+    // No recruitment target set — there's nothing to judge fill against, so
+    // don't claim the roster "looks healthy" against a target that isn't there.
+    reasons.push("No recruitment target set for this program");
   }
 
   if (

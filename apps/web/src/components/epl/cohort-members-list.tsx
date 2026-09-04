@@ -67,6 +67,7 @@ export function CohortMembersList({ tenantId, cohort, accent, canManage = true, 
   const [panelOpen, setPanelOpen] = useState(false);
   const [form, setForm] = useState<MemberForm>(EMPTY_FORM);
   const isCompletedCohort = cohort.status === "completed";
+  const isIncomingCohort = cohort.statusLabel === "Incoming";
 
   const membersQuery = useQuery({
     ...trpc.cohorts.members.queryOptions({
@@ -264,7 +265,9 @@ export function CohortMembersList({ tenantId, cohort, accent, canManage = true, 
           className="rm-state"
           style={{ fontSize: 13, marginBottom: 14, textAlign: "left", padding: "12px 14px" }}
         >
-          This cohort is still in progress — active fellows are managed in <strong>Network</strong>.
+          {isIncomingCohort
+            ? <>This cohort hasn't started yet — its incoming fellows are managed in <strong>Network</strong>.</>
+            : <>This cohort is still in progress — active fellows are managed in <strong>Network</strong>.</>}{" "}
           Mark the cohort completed to add alumni records here.
         </div>
       )}
@@ -288,7 +291,9 @@ export function CohortMembersList({ tenantId, cohort, accent, canManage = true, 
         <div className="rm-state" style={{ fontSize: 13 }}>
           {isCompletedCohort
             ? "No alumni yet — use Add alumni or import a CSV with names, program, and optional retention details."
-            : "No member records yet — fellows in this cohort are managed through Network while the cohort is in progress."}
+            : isIncomingCohort
+              ? "No member records here — this cohort's incoming fellows are managed through Network until it starts."
+              : "No member records yet — fellows in this cohort are managed through Network while the cohort is in progress."}
         </div>
       ) : (
         <div style={{ overflow: "auto", borderRadius: 10, border: "1px solid var(--eborder)" }}>

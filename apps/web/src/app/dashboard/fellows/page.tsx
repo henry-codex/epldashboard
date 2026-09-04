@@ -187,7 +187,7 @@ function StatusBreakdown({
               fontFamily: "var(--font)",
             }}
           >
-            {total > 0 ? `${item.value}% of total network` : "—"}
+            {total > 0 ? `${item.value}% of the network` : "—"}
           </div>
         </div>
       ))}
@@ -197,6 +197,7 @@ function StatusBreakdown({
 
 function CountryDeploymentList({
   countries,
+  totalActiveFellows,
 }: {
   countries: Array<{
     name: string;
@@ -206,13 +207,14 @@ function CountryDeploymentList({
     total: number;
     color: string;
   }>;
+  totalActiveFellows: number;
 }) {
-  const maxFellows = Math.max(...countries.map((c) => c.fellows), 1);
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {countries.map((country) => {
-        const fillPct = Math.max(10, Math.round((country.fellows / maxFellows) * 100));
+        const sharePct =
+          totalActiveFellows > 0 ? Math.round((country.fellows / totalActiveFellows) * 100) : null;
+        const fillPct = sharePct ?? 0;
         return (
           <div
             key={country.name}
@@ -298,8 +300,10 @@ function CountryDeploymentList({
                   marginBottom: 6,
                 }}
               >
-                <span>Hub deployment</span>
-                <span style={{ fontWeight: 700, color: country.color }}>{fillPct}%</span>
+                <span>Share of active network</span>
+                <span style={{ fontWeight: 700, color: country.color }}>
+                  {sharePct != null ? `${sharePct}%` : "—"}
+                </span>
               </div>
               <div
                 style={{
@@ -365,9 +369,14 @@ export default function GlobalFellowsDashboard() {
     [networkQuery.data?.gender, networkQuery.data?.total],
   );
 
+  const statusTotal = useMemo(
+    () => (networkQuery.data?.status ?? []).reduce((sum, item) => sum + item.count, 0),
+    [networkQuery.data?.status],
+  );
+
   const statusData = useMemo(
-    () => toPercentData(networkQuery.data?.status ?? [], networkQuery.data?.total ?? 0),
-    [networkQuery.data?.status, networkQuery.data?.total],
+    () => toPercentData(networkQuery.data?.status ?? [], statusTotal),
+    [networkQuery.data?.status, statusTotal],
   );
 
   const cohortGrowthData = networkQuery.data?.cohorts ?? [];
@@ -497,7 +506,7 @@ export default function GlobalFellowsDashboard() {
                     fontWeight: 700,
                   }}
                 >
-                  MCF Fellows
+                  Alumni Leaders
                 </div>
                 <div
                   style={{
@@ -508,7 +517,7 @@ export default function GlobalFellowsDashboard() {
                     lineHeight: 1,
                   }}
                 >
-                  {totals?.mcfFellows ?? 0}
+                  {totals?.alumniLeaders ?? 0}
                 </div>
               </div>
          </div>
@@ -786,7 +795,7 @@ export default function GlobalFellowsDashboard() {
                         <div className="network-breakdown-empty-title">No status data yet</div>
              </div>
                     ) : (
-                      <StatusBreakdown items={statusData} total={networkQuery.data?.total ?? 0} />
+                      <StatusBreakdown items={statusData} total={statusTotal} />
                     )}
           </div>
 
@@ -809,7 +818,7 @@ export default function GlobalFellowsDashboard() {
                         <div className="network-breakdown-empty-title">No country hubs yet</div>
                       </div>
                     ) : (
-                      <CountryDeploymentList countries={countryData} />
+                      <CountryDeploymentList countries={countryData} totalActiveFellows={totals?.activeFellows ?? 0} />
                     )}
              </div>
           </div>

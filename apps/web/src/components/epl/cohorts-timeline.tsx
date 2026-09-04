@@ -34,6 +34,18 @@ export type CohortTimelineItem = {
   startedCount: number | null;
   graduatedCount: number | null;
   placedCount: number | null;
+  toBeRecruitedCount: number | null;
+  maleCount: number | null;
+  femaleCount: number | null;
+  pwdCount: number | null;
+  idpCount: number | null;
+  scholarCount: number | null;
+  attritionRatePercent: number | null;
+  attritionMale: number | null;
+  attritionFemale: number | null;
+  attritionPwd: number | null;
+  attritionIdp: number | null;
+  isMcf: boolean;
   notes?: string | null;
 };
 
@@ -96,7 +108,10 @@ function cohortHeadlineStat(cohort: CohortTimelineItem, accent: string) {
     return {
       label: "Alumni",
       value: cohort.alumniFellows,
-      subtext: `${cohort.totalFellows} started · all graduated`,
+      subtext:
+        cohort.alumniFellows >= cohort.totalFellows
+          ? `${cohort.totalFellows} started · all graduated`
+          : `${cohort.totalFellows} started · ${cohort.alumniFellows} graduated`,
       iconColor: "#3B8BEB",
     };
   }
@@ -175,7 +190,11 @@ export function CohortsTimeline({
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--ewhite)", fontFamily: "var(--font)" }}>
                 {cohort.label}
               </h3>
-              <span className={cohort.inProgress ? "nm-status-pill is-active" : "nm-status-pill is-alumni"}>
+              <span
+                className={`nm-status-pill ${
+                  cohort.statusLabel === "Incoming" ? "is-incoming" : cohort.inProgress ? "is-active" : "is-alumni"
+                }`}
+              >
                 {cohort.statusLabel}
               </span>
               {cohort.isVirtual ? (
@@ -236,13 +255,6 @@ export function CohortsTimeline({
             </div>
             <div style={{ width: "100%", height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 10, overflow: "hidden" }}>
               <div style={{ width: `${cohort.graduationRate}%`, height: "100%", background: "#3B8BEB", borderRadius: 10 }} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, marginBottom: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--emuted)", textTransform: "uppercase" }}>Retention</span>
-              <span style={{ fontSize: 11, fontWeight: 800, color: "#2EC27E" }}>{cohort.placementRate}%</span>
-            </div>
-            <div style={{ width: "100%", height: 8, background: "rgba(255,255,255,0.06)", borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ width: `${cohort.placementRate}%`, height: "100%", background: "#2EC27E", borderRadius: 10 }} />
             </div>
           </div>
           )}

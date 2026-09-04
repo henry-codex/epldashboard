@@ -6,7 +6,7 @@ import { CountryLayout } from "@/components/epl/country-layout";
 import { CountrySectionSkeleton } from "@/components/epl/country-section-empty";
 import { NetworkAggregateView } from "@/components/epl/network-aggregate-view";
 import { NetworkManager } from "@/components/epl/network-manager";
-import { NetworkMetricCards } from "@/components/epl/network-metrics";
+import { NetworkMetricCards, NetworkInsightStats } from "@/components/epl/network-metrics";
 import { useCountryHub } from "@/hooks/use-country-hub";
 import { useHomePath } from "@/hooks/use-home-path";
 import { isNetworkManager, isPlatformViewer } from "@/lib/network-access";
@@ -24,9 +24,12 @@ export default function CountryFellowsPage() {
     ...trpc.fellows.aggregates.queryOptions({ tenantId: hub?.id ?? "" }),
     enabled: Boolean(hub?.isLive && hub.id),
   });
-
-  const partnersQuery = useQuery({
-    ...trpc.partners.aggregates.queryOptions({ tenantId: hub?.id ?? "", kind: "placement" }),
+  const demographicsQuery = useQuery({
+    ...trpc.fellows.demographics.queryOptions({ tenantId: hub?.id ?? "" }),
+    enabled: Boolean(hub?.isLive && hub.id),
+  });
+  const cohortsAggQuery = useQuery({
+    ...trpc.cohorts.aggregates.queryOptions({ tenantId: hub?.id ?? "" }),
     enabled: Boolean(hub?.isLive && hub.id),
   });
 
@@ -55,8 +58,8 @@ export default function CountryFellowsPage() {
           <Header hubName={mock.name} canManage={false} aggregateOnly />
           <NetworkMetricCards
             activeFellows={mock.fellows}
-            mcfFellows={0}
-            activePartners={mock.institutions}
+            alumniLeaders={mock.alumni}
+            totalNetwork={mock.fellows + mock.alumni}
             accent={mock.color}
           />
           <div className="gc" style={{ padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -74,17 +77,43 @@ export default function CountryFellowsPage() {
     activeFellows: 0,
     alumniLeaders: 0,
     inactiveFellows: 0,
+    incomingFellows: 0,
     mcfFellows: 0,
     totalNetwork: 0,
   };
-  const activePartners = partnersQuery.data?.activePartners ?? 0;
-  const metricsLoading = aggregatesQuery.isLoading || partnersQuery.isLoading;
+  const demographics = demographicsQuery.data;
+  // Scoped to the current roster (active + incoming), matching what this
+  // page's default view and the tiles below actually count — not blended
+  // with historical alumni.
+  const femaleCount = demographics?.currentGender.find((g) => g.name === "Female")?.count ?? null;
+  const maleCount = demographics?.currentGender.find((g) => g.name === "Male")?.count ?? null;
+  const pwdCount = demographics?.currentDisability.find((d) => d.name === "Yes")?.count ?? null;
+  const scholarCount = demographics?.currentScholars ?? 0;
+  const cohortsAgg = cohortsAggQuery.data;
+  const metricsLoading = aggregatesQuery.isLoading || cohortsAggQuery.isLoading;
 
   const metricCards = (
     <NetworkMetricCards
       activeFellows={aggregates.activeFellows}
-      mcfFellows={aggregates.mcfFellows}
-      activePartners={activePartners}
+      // "Alumni" = graduates from cohort stats, not the fellows-roster
+      // alumni-status count — most hubs never enter individual alumni rows,
+      // so that count would read as a near-permanent false zero.
+      alumniLeaders={cohortsAgg?.totalGraduated ?? 0}
+      // "Total Network" = total ever recruited across all cohorts, matching
+      // the Country Stats Summary panel, not active+alumni.
+      totalNetwork={cohortsAgg?.totalFellows ?? 0}
+      accent={hub.color}
+    />
+  );
+
+  const insightStats = (
+    <NetworkInsightStats
+      incomingFellows={aggregates.incomingFellows}
+      mcfFellows={scholarCount}
+      totalCurrent={aggregates.activeFellows + aggregates.incomingFellows}
+      femaleCount={femaleCount}
+      maleCount={maleCount}
+      pwdCount={pwdCount}
       accent={hub.color}
     />
   );
@@ -97,6 +126,7 @@ export default function CountryFellowsPage() {
         {canManage ? (
           <>
             {metricsLoading ? <CountrySectionSkeleton accent={hub.color} /> : metricCards}
+            {!metricsLoading && insightStats}
             <NetworkManager tenantId={hub.id} hubName={hub.name} accent={hub.color} />
           </>
         ) : aggregateOnly ? (
@@ -107,8 +137,8 @@ export default function CountryFellowsPage() {
               tenantId={hub.id}
               accent={hub.color}
               activeFellows={aggregates.activeFellows}
-              alumniLeaders={aggregates.alumniLeaders}
-              totalNetwork={aggregates.totalNetwork}
+              alumniLeaders={cohortsAgg?.totalGraduated ?? 0}
+              totalNetwork={cohortsAgg?.totalFellows ?? 0}
             />
           )
         ) : metricsLoading ? (

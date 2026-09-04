@@ -23,6 +23,7 @@ import {
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
 import { EventsCalendar, formatEventWhen } from "@/components/epl/events-calendar";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
 
 type EventRow = {
@@ -413,6 +414,7 @@ export function EventsManager({
   readOnly = false,
   isSuperAdmin = false,
 }: Props) {
+  const confirm = useConfirm();
   const now = new Date();
   const [panelOpen, setPanelOpen] = useState(false);
   const [viewEvent, setViewEvent] = useState<EventRow | null>(null);
@@ -537,8 +539,14 @@ export function EventsManager({
     }
   }
 
-  function deleteEvent(row: EventRow) {
-    if (!window.confirm(`Delete "${row.title}"?`)) return;
+  async function deleteEvent(row: EventRow) {
+    const ok = await confirm({
+      title: "Delete event?",
+      message: `Delete "${row.title}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     deleteMutation.mutate({ tenantId, id: row.id }, { onSuccess: () => closeView() });
   }
 

@@ -43,7 +43,6 @@ export default function CountryCohortsPage() {
 
   if (mock) {
     const totalFellows = mock.cohorts.reduce((sum, cohort) => sum + cohort.fellows, 0);
-    const totalPlaced = mock.cohorts.reduce((sum, cohort) => sum + cohort.placed, 0);
     const totalGrad = mock.cohorts.reduce((sum, cohort) => sum + cohort.graduated, 0);
 
     return (
@@ -53,13 +52,11 @@ export default function CountryCohortsPage() {
           <CohortsMetricCards
             cohortCount={mock.cohorts.length}
             totalAlumni={totalGrad}
-            totalPlaced={totalPlaced}
             totalFellows={totalFellows}
             accent={mock.color}
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {mock.cohorts.map((cohort) => {
-              const placePct = cohort.fellows > 0 ? Math.round((cohort.placed / cohort.fellows) * 100) : 0;
               const gradPct = cohort.fellows > 0 ? Math.round((cohort.graduated / cohort.fellows) * 100) : 0;
               return (
                 <div key={String(cohort.year)} className="gc" style={{ padding: "20px 24px" }}>
@@ -67,11 +64,11 @@ export default function CountryCohortsPage() {
                     {cohort.year}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--emuted)", marginBottom: 12, fontFamily: "var(--font)" }}>
-                    {cohort.fellows} fellows · {placePct}% retained
+                    {cohort.fellows} fellows
                     {cohort.graduated > 0 ? ` · ${gradPct}% graduated` : ""}
                   </div>
                   <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)" }}>
-                    <div style={{ width: `${placePct}%`, height: "100%", borderRadius: 3, background: mock.color }} />
+                    <div style={{ width: `${gradPct}%`, height: "100%", borderRadius: 3, background: mock.color }} />
                   </div>
                 </div>
               );
@@ -85,7 +82,6 @@ export default function CountryCohortsPage() {
   const aggregates = aggregatesQuery.data ?? {
     cohortCount: 0,
     totalFellows: 0,
-    totalPlaced: 0,
     totalGraduated: 0,
     inProgressCohorts: 0,
     fellowsInProgress: 0,
@@ -102,7 +98,6 @@ export default function CountryCohortsPage() {
           <CohortsMetricCards
             cohortCount={aggregates.cohortCount}
             totalAlumni={aggregates.totalGraduated}
-            totalPlaced={aggregates.totalPlaced}
             totalFellows={aggregates.totalFellows}
             inProgressCohorts={aggregates.inProgressCohorts}
             fellowsInProgress={aggregates.fellowsInProgress}

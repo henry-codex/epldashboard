@@ -38,7 +38,12 @@ export const fellows = pgTable("fellows", {
   lastName: text("last_name").notNull(),
   dateOfBirth: date("date_of_birth"),
   gender: text("gender"),
-  email: text("email").notNull(),
+  // Nullable: several country source sheets (see data-migration scripts)
+  // don't carry a usable per-person email. Absence here just means "not
+  // yet known" — externalId is the durable dedupe/upsert key for rows
+  // synced without one; the unique index below still enforces uniqueness
+  // whenever an email *is* present (Postgres treats each NULL as distinct).
+  email: text("email"),
   phone: text("phone"),
   nationality: text("nationality"),
   countryOfOrigin: text("country_of_origin"),
@@ -52,9 +57,11 @@ export const fellows = pgTable("fellows", {
   shareable: boolean("shareable").default(true),
   
   // EPL Program details
-  cohortYear: integer("cohort_year").notNull(),
+  // Nullable: some source data (e.g. per-country rosters) tracks lifecycle
+  // status directly but doesn't give a reliable per-person cohort year.
+  cohortYear: integer("cohort_year"),
   program: text("program").notNull(), // 'Public Service Fellowship' | 'Women on the Rise' | 'PEACE'
-  status: text("status").notNull(), // 'active' | 'alumni' | 'inactive'
+  status: text("status").notNull(), // 'incoming' | 'active' | 'alumni' | 'inactive'
   isMcf: boolean("is_mcf").default(false),
   customFields: jsonb("custom_fields").default({}).notNull(),
 
@@ -104,6 +111,24 @@ export const hubCohorts = pgTable("hub_cohorts", {
   startedCount: integer("started_count"),
   graduatedCount: integer("graduated_count"),
   placedCount: integer("placed_count"),
+  toBeRecruitedCount: integer("to_be_recruited_count"),
+  maleCount: integer("male_count"),
+  femaleCount: integer("female_count"),
+  pwdCount: integer("pwd_count"),
+  idpCount: integer("idp_count"),
+  scholarCount: integer("scholar_count"),
+  // Percent (0-100). Overall + the per-group breakdown the country teams
+  // track today (mirrors the "Master Database EPL Statistics" workbook).
+  attritionRatePercent: integer("attrition_rate_percent"),
+  attritionMale: integer("attrition_male"),
+  attritionFemale: integer("attrition_female"),
+  attritionPwd: integer("attrition_pwd"),
+  attritionIdp: integer("attrition_idp"),
+  // Whether any part of this cohort is Mastercard Foundation-funded. The
+  // Foundation's own figures live in hubCohortMcfStats — they are NOT just
+  // a filter over these columns (the workbook's MCF_Stats tab reports its
+  // own counts, e.g. Ghana Cohort 8 is 45 here but 44 there).
+  isMcf: boolean("is_mcf").default(false),
   notes: text("notes"),
   sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -111,6 +136,35 @@ export const hubCohorts = pgTable("hub_cohorts", {
 }, (table) => [
   index("hub_cohorts_tenant_idx").on(table.tenantId),
   uniqueIndex("hub_cohorts_tenant_label_idx").on(table.tenantId, table.label),
+]);
+
+// The Mastercard Foundation's own reported figures for a cohort — the
+// workbook's "MCF_Stats" tab. Kept separate from hub_cohorts rather than
+// folded into it because the Foundation reports on its funded slice only,
+// so the numbers genuinely differ from the country-wide totals, and only
+// some cohorts appear in that sheet at all.
+export const hubCohortMcfStats = pgTable("hub_cohort_mcf_stats", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  cohortId: uuid("cohort_id").references(() => hubCohorts.id).notNull(),
+  startedCount: integer("started_count"),
+  graduatedCount: integer("graduated_count"),
+  toBeRecruitedCount: integer("to_be_recruited_count"),
+  maleCount: integer("male_count"),
+  femaleCount: integer("female_count"),
+  pwdCount: integer("pwd_count"),
+  idpCount: integer("idp_count"),
+  scholarCount: integer("scholar_count"),
+  attritionRatePercent: integer("attrition_rate_percent"),
+  attritionMale: integer("attrition_male"),
+  attritionFemale: integer("attrition_female"),
+  attritionPwd: integer("attrition_pwd"),
+  attritionIdp: integer("attrition_idp"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (table) => [
+  index("hub_cohort_mcf_stats_tenant_idx").on(table.tenantId),
+  uniqueIndex("hub_cohort_mcf_stats_cohort_idx").on(table.cohortId),
 ]);
 
 // Country hub organizations: placement institutions (where fellows serve) and partners (funders, etc.)
@@ -232,13 +286,17 @@ export const placements = pgTable("placements", {
   
   institution: text("institution").notNull(),
   department: text("department"),
-  roleTitle: text("role_title").notNull(),
+  // Nullable: country rosters frequently name the placement institution
+  // only ("Ministry of Finance") without a role title, city, or start
+  // date. Store what's known rather than inventing the rest; these fill
+  // in later as country teams provide them.
+  roleTitle: text("role_title"),
   country: text("country").notNull(),
-  city: text("city").notNull(),
+  city: text("city"),
   lat: numeric("lat", { precision: 9, scale: 6 }),
   lng: numeric("lng", { precision: 9, scale: 6 }),
-  
-  startDate: date("start_date").notNull(),
+
+  startDate: date("start_date"),
   endDate: date("end_date"), // null = current
   isCurrent: boolean("is_current").default(true),
   

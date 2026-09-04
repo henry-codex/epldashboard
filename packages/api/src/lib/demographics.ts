@@ -36,5 +36,6 @@ export function formatStatusLabel(status: string): string {
   if (status === "active") return "Active Fellows";
   if (status === "alumni") return "Alumni";
   if (status === "inactive") return "Inactive";
+  if (status === "incoming") return "Incoming (not yet started)";
   return status;
 }

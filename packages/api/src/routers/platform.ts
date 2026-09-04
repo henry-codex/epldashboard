@@ -4,6 +4,8 @@ import {
   db,
   fellows,
   hubAlumniLeaders,
+  hubCohorts,
+  hubCohortMcfStats,
   hubEvents,
   hubPartners,
   hubPrograms,
@@ -14,7 +16,7 @@ import {
 import { protectedProcedure, router } from "../index";
 import { checkInEligibleCohortYears, mergedCohortStats } from "../lib/cohort-stats.js";
 import { computeProgramHealth } from "../lib/program-health.js";
-import { countBreakdown, formatStatusLabel, normalizeGender } from "../lib/demographics.js";
+import { countBreakdown, normalizeGender } from "../lib/demographics.js";
 import {
   fellowCountsByProgram,
   lookupProgramCounts,
@@ -297,6 +299,15 @@ export const platformRouter = router({
             daysRemaining: c.daysRemaining,
           }));
 
+        // "Alumni" here means graduates from cohort stats, and "Total Network"
+        // is total ever recruited across all cohorts — matching the Country
+        // Stats Summary panel each hub already sees. Most hubs never enter
+        // individual alumni rows in the fellows roster, so the roster-based
+        // count (fellowsStats.alumni) reads as a near-permanent false low
+        // number here.
+        const totalGraduated = cohortItems.reduce((sum, c) => sum + c.alumniFellows, 0);
+        const totalRecruited = cohortItems.reduce((sum, c) => sum + c.totalFellows, 0);
+
         return {
           id: meta.id,
           name: meta.name,
@@ -306,8 +317,8 @@ export const platformRouter = router({
           flag: meta.flag,
           color: meta.color,
           activeFellows: fellowsStats.active,
-          alumniLeaders: fellowsStats.alumni,
-          totalNetwork: fellowsStats.active + fellowsStats.alumni,
+          alumniLeaders: totalGraduated,
+          totalNetwork: totalRecruited,
           placed,
           placementRate,
           institutions: partners.count,
@@ -315,6 +326,7 @@ export const platformRouter = router({
           programHealth,
           activeCohorts,
           activeCohortCount: activeCohorts.length,
+          cohortCount: cohortItems.length,
         };
       }),
     );
@@ -427,7 +439,7 @@ export const platformRouter = router({
         gender: fellows.gender,
         status: fellows.status,
         cohortYear: fellows.cohortYear,
-        isMcf: fellows.isMcf,
+        customFields: fellows.customFields,
       })
       .from(fellows)
       .where(inArray(fellows.tenantId, tenantIds));
@@ -437,42 +449,77 @@ export const platformRouter = router({
       const current = byTenant.get(row.tenantId) ?? { active: 0, alumni: 0, mcf: 0 };
       if (row.status === "active") current.active += 1;
       if (row.status === "alumni") current.alumni += 1;
-      if (row.isMcf) current.mcf += 1;
+      // The per-person scholar flag from the sheet's own "Mastercard Scholar"
+      // column — not fellows.isMcf, a cohort-wide funding assumption that can
+      // mark every fellow in a cohort "Yes" even when only some are
+      // individually designated scholars (and can exceed the hub's total).
+      if ((row.customFields as Record<string, unknown> | null)?.is_mcf_scholar === true) current.mcf += 1;
       byTenant.set(row.tenantId, current);
     }
+
+    const cohortsByTenant = await Promise.all(metas.map((meta) => mergedCohortStats(meta.id)));
+    const cohortStatsByTenant = new Map(
+      metas.map((meta, index) => {
+        const items = cohortsByTenant[index]!;
+        return [
+          meta.id,
+          {
+            totalGraduated: items.reduce((sum, c) => sum + c.alumniFellows, 0),
+            totalRecruited: items.reduce((sum, c) => sum + c.totalFellows, 0),
+          },
+        ] as const;
+      }),
+    );
 
     const countries = metas
       .map((meta) => {
         const stats = byTenant.get(meta.id) ?? { active: 0, alumni: 0, mcf: 0 };
+        const cohortStats = cohortStatsByTenant.get(meta.id) ?? { totalGraduated: 0, totalRecruited: 0 };
         return {
           id: meta.id,
           name: meta.name,
           color: meta.color,
           flag: meta.flag,
           activeFellows: stats.active,
-          alumniLeaders: stats.alumni,
+          alumniLeaders: cohortStats.totalGraduated,
           mcfFellows: stats.mcf,
-          totalNetwork: stats.active + stats.alumni,
+          totalNetwork: cohortStats.totalRecruited,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const cohortMap = new Map<number, number>();
+    const cohortMap = new Map<number | null, number>();
     for (const row of fellowRows) {
       cohortMap.set(row.cohortYear, (cohortMap.get(row.cohortYear) ?? 0) + 1);
     }
     const cohorts = [...cohortMap.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([year, intake]) => ({ year: String(year), intake }));
+      .sort(([a], [b]) => (a ?? Infinity) - (b ?? Infinity))
+      .map(([year, intake]) => ({ year: year != null ? String(year) : "Unspecified", intake }));
 
     let activeFellows = 0;
     let alumniLeaders = 0;
     let mcfFellows = 0;
+    let totalNetwork = 0;
     for (const country of countries) {
       activeFellows += country.activeFellows;
       alumniLeaders += country.alumniLeaders;
       mcfFellows += country.mcfFellows;
+      totalNetwork += country.totalNetwork;
     }
+
+    // "Alumni" here must match the cohort-based totalGraduated used for
+    // alumniLeaders above, not the roster's status="alumni" row count — most
+    // hubs never enter individual alumni rows, so the raw roster count reads
+    // as a different (and usually much smaller) number than the "Alumni
+    // Leaders" KPI shown elsewhere on the same page.
+    const incomingCount = fellowRows.filter((row) => row.status === "incoming").length;
+    const inactiveCount = fellowRows.filter((row) => row.status === "inactive").length;
+    const status = [
+      { name: "Active Fellows", count: activeFellows },
+      { name: "Alumni", count: alumniLeaders },
+      { name: "Incoming (not yet started)", count: incomingCount },
+      ...(inactiveCount > 0 ? [{ name: "Inactive", count: inactiveCount }] : []),
+    ].sort((a, b) => b.count - a.count);
 
     return {
       totals: {
@@ -480,11 +527,11 @@ export const platformRouter = router({
         activeFellows,
         alumniLeaders,
         mcfFellows,
-        totalNetwork: activeFellows + alumniLeaders,
+        totalNetwork,
       },
       countries,
       gender: countBreakdown(fellowRows.map((row) => normalizeGender(row.gender))),
-      status: countBreakdown(fellowRows.map((row) => formatStatusLabel(row.status))),
+      status,
       cohorts,
       total: fellowRows.length,
     };
@@ -622,6 +669,233 @@ export const platformRouter = router({
       },
       programs,
     };
+  }),
+
+  // The continental rollup of the same numbers each hub already sees on its
+  // own Country Stats Summary panel — summed straight from hub_cohorts, not
+  // a separate import. Nothing here is invented: a country with no cohort
+  // data entered just contributes zeros, same as its own Summary panel would.
+  countrySummary: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.role !== "super_admin") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Platform country summary is only available to Super Admins",
+      });
+    }
+
+    const tenantRows = await db
+      .select({
+        id: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        countryCode: tenants.countryCode,
+        settings: tenants.settings,
+        isActive: tenants.isActive,
+      })
+      .from(tenants)
+      .where(and(ne(tenants.countryCode, "GLOBAL"), eq(tenants.isActive, true)));
+
+    const metas = tenantRows.map(mapTenantMeta);
+
+    if (metas.length === 0) {
+      return {
+        countries: [] as Array<{
+          id: string;
+          name: string;
+          color: string;
+          flag: string;
+          iso2: string;
+          countryCode: string;
+          cohortCount: number;
+          totalRecruited: number;
+          totalGraduated: number;
+          femalePct: number | null;
+          pwdTotal: number | null;
+          pwdCoverage: number;
+          scholarTotal: number | null;
+          scholarCoverage: number;
+          programs: Array<{ title: string; status: string }>;
+        }>,
+      };
+    }
+
+    const countries = await Promise.all(
+      metas.map(async (meta) => {
+        const [cohortItems, programRows] = await Promise.all([
+          mergedCohortStats(meta.id),
+          db
+            .select({
+              title: hubPrograms.title,
+              status: hubPrograms.status,
+            })
+            .from(hubPrograms)
+            .where(eq(hubPrograms.tenantId, meta.id)),
+        ]);
+
+        const real = cohortItems.filter((c) => !c.isVirtual);
+        const sumField = (key: "totalFellows" | "alumniFellows" | "maleCount" | "femaleCount" | "pwdCount" | "scholarCount") => {
+          const reporting = real.filter((c) => (key === "totalFellows" || key === "alumniFellows" ? true : c[key] != null));
+          if (reporting.length === 0) return null;
+          return {
+            total: reporting.reduce((sum, c) => sum + (Number(c[key]) || 0), 0),
+            coverage: reporting.length,
+          };
+        };
+
+        const recruited = sumField("totalFellows");
+        const graduated = sumField("alumniFellows");
+        const male = sumField("maleCount");
+        const female = sumField("femaleCount");
+        const pwd = sumField("pwdCount");
+        const scholar = sumField("scholarCount");
+        const femalePct =
+          male && female && male.total + female.total > 0
+            ? Math.round((female.total / (male.total + female.total)) * 100)
+            : null;
+
+        return {
+          id: meta.id,
+          name: meta.name,
+          color: meta.color,
+          flag: meta.flag,
+          iso2: meta.iso2,
+          countryCode: meta.countryCode,
+          cohortCount: real.length,
+          totalRecruited: recruited?.total ?? 0,
+          totalGraduated: graduated?.total ?? 0,
+          femalePct,
+          pwdTotal: pwd?.total ?? null,
+          pwdCoverage: pwd?.coverage ?? 0,
+          scholarTotal: scholar?.total ?? null,
+          scholarCoverage: scholar?.coverage ?? 0,
+          programs: programRows,
+        };
+      }),
+    );
+
+    countries.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { countries };
+  }),
+
+  // Same rollup as countrySummary, but scoped to the Mastercard Foundation's
+  // own reported slice (hub_cohort_mcf_stats) — the workbook's "MCF_Stats"
+  // sheet, not the country-wide "All Stats" one. There's deliberately no
+  // "Target" field: no imported or entered data source has one, so it's
+  // left out rather than guessed.
+  mcfSummary: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.role !== "super_admin") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Platform MCF summary is only available to Super Admins",
+      });
+    }
+
+    const tenantRows = await db
+      .select({
+        id: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        countryCode: tenants.countryCode,
+        settings: tenants.settings,
+        isActive: tenants.isActive,
+      })
+      .from(tenants)
+      .where(and(ne(tenants.countryCode, "GLOBAL"), eq(tenants.isActive, true)));
+
+    const metas = tenantRows.map(mapTenantMeta);
+
+    if (metas.length === 0) {
+      return {
+        countries: [] as Array<{
+          id: string;
+          name: string;
+          color: string;
+          flag: string;
+          iso2: string;
+          countryCode: string;
+          cohortRangeLabel: string;
+          cohortCount: number;
+          totalRecruited: number;
+          totalGraduated: number;
+          femalePct: number | null;
+          pwdTotal: number | null;
+          pwdCoverage: number;
+          scholarTotal: number | null;
+          scholarCoverage: number;
+          toBeRecruited: number;
+        }>,
+      };
+    }
+
+    const countries = await Promise.all(
+      metas.map(async (meta) => {
+        const rows = await db
+          .select({
+            label: hubCohorts.label,
+            cohortYear: hubCohorts.cohortYear,
+            startedCount: hubCohortMcfStats.startedCount,
+            graduatedCount: hubCohortMcfStats.graduatedCount,
+            toBeRecruitedCount: hubCohortMcfStats.toBeRecruitedCount,
+            maleCount: hubCohortMcfStats.maleCount,
+            femaleCount: hubCohortMcfStats.femaleCount,
+            pwdCount: hubCohortMcfStats.pwdCount,
+            scholarCount: hubCohortMcfStats.scholarCount,
+          })
+          .from(hubCohortMcfStats)
+          .innerJoin(hubCohorts, eq(hubCohortMcfStats.cohortId, hubCohorts.id))
+          .where(eq(hubCohortMcfStats.tenantId, meta.id))
+          .orderBy(asc(hubCohorts.cohortYear));
+
+        const sumField = (key: "startedCount" | "graduatedCount" | "maleCount" | "femaleCount" | "pwdCount" | "scholarCount") => {
+          const reporting = rows.filter((r) => r[key] != null);
+          if (reporting.length === 0) return null;
+          return { total: reporting.reduce((sum, r) => sum + (r[key] ?? 0), 0), coverage: reporting.length };
+        };
+
+        const recruited = sumField("startedCount");
+        const graduated = sumField("graduatedCount");
+        const male = sumField("maleCount");
+        const female = sumField("femaleCount");
+        const pwd = sumField("pwdCount");
+        const scholar = sumField("scholarCount");
+        const femalePct =
+          male && female && male.total + female.total > 0
+            ? Math.round((female.total / (male.total + female.total)) * 100)
+            : null;
+        const toBeRecruited = rows.reduce((sum, r) => sum + (r.toBeRecruitedCount ?? 0), 0);
+
+        const cohortRangeLabel =
+          rows.length === 0
+            ? "—"
+            : rows[0]!.label === rows[rows.length - 1]!.label
+              ? rows[0]!.label
+              : `${rows[0]!.label} – ${rows[rows.length - 1]!.label}`;
+
+        return {
+          id: meta.id,
+          name: meta.name,
+          color: meta.color,
+          flag: meta.flag,
+          iso2: meta.iso2,
+          countryCode: meta.countryCode,
+          cohortRangeLabel,
+          cohortCount: rows.length,
+          totalRecruited: recruited?.total ?? 0,
+          totalGraduated: graduated?.total ?? 0,
+          femalePct,
+          pwdTotal: pwd?.total ?? null,
+          pwdCoverage: pwd?.coverage ?? 0,
+          scholarTotal: scholar?.total ?? null,
+          scholarCoverage: scholar?.coverage ?? 0,
+          toBeRecruited,
+        };
+      }),
+    );
+
+    countries.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { countries: countries.filter((c) => c.cohortCount > 0) };
   }),
 
   eventPortfolio: protectedProcedure.query(async ({ ctx }) => {

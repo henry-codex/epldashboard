@@ -293,4 +293,72 @@ export const tenantsRouter = router({
         },
       };
     }),
+
+  /** Edit a hub's display name and settings (color, flag, iso2) */
+  update: requirePermission("tenants:manage")
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string().min(2).max(100).optional(),
+        color: z.string().max(32).optional(),
+        flag: z.string().max(8).optional(),
+        iso2: z
+          .string()
+          .length(2)
+          .transform((v) => v.toUpperCase())
+          .optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const existing = await db.query.tenants.findFirst({ where: eq(tenants.id, input.id) });
+      if (!existing || existing.countryCode === "GLOBAL") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Country hub not found" });
+      }
+
+      const currentSettings = (existing.settings ?? {}) as { flag?: string; color?: string; iso2?: string };
+      const settings = tenantSettingsSchema.parse({
+        flag: input.flag ?? currentSettings.flag,
+        color: input.color ?? currentSettings.color,
+        iso2: input.iso2 ?? currentSettings.iso2,
+      });
+
+      const [updated] = await db
+        .update(tenants)
+        .set({
+          ...(input.name ? { name: input.name.trim() } : {}),
+          settings,
+        })
+        .where(eq(tenants.id, input.id))
+        .returning();
+
+      if (!updated) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to update country hub" });
+      }
+
+      return mapTenant({ ...updated, memberCount: 0 });
+    }),
+
+  /** Soft delete (deactivate) or restore a hub. Deactivated hubs are excluded
+   * from every platform-wide aggregate query, so their data stops showing up
+   * network-wide without losing the underlying records. */
+  setActive: requirePermission("tenants:manage")
+    .input(z.object({ id: z.string().uuid(), isActive: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const existing = await db.query.tenants.findFirst({ where: eq(tenants.id, input.id) });
+      if (!existing || existing.countryCode === "GLOBAL") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Country hub not found" });
+      }
+
+      const [updated] = await db
+        .update(tenants)
+        .set({ isActive: input.isActive })
+        .where(eq(tenants.id, input.id))
+        .returning();
+
+      if (!updated) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to update country hub" });
+      }
+
+      return mapTenant({ ...updated, memberCount: 0 });
+    }),
 });

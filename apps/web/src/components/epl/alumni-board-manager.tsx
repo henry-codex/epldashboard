@@ -20,6 +20,7 @@ import {
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
 import { flagImageUrl, resolveIso2 } from "@/lib/world-countries";
 
@@ -103,6 +104,7 @@ function HubFlag({ country, size = 18 }: { country: HubMeta; size?: number }) {
 }
 
 export function AlumniBoardManager() {
+  const confirm = useConfirm();
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ExecutiveForm>(EMPTY_FORM);
@@ -244,13 +246,25 @@ export function AlumniBoardManager() {
     }
   }
 
-  function archiveExecutive(row: ExecutiveRow) {
-    if (!window.confirm(`Archive ${row.fullName}? They will be hidden from Executive Hub.`)) return;
+  async function archiveExecutive(row: ExecutiveRow) {
+    const ok = await confirm({
+      title: "Archive executive?",
+      message: `Archive ${row.fullName}? They will be hidden from Executive Hub.`,
+      confirmLabel: "Archive",
+      danger: true,
+    });
+    if (!ok) return;
     archiveMutation.mutate({ id: row.id });
   }
 
-  function deleteExecutive(row: ExecutiveRow) {
-    if (!window.confirm(`Permanently delete ${row.fullName}?`)) return;
+  async function deleteExecutive(row: ExecutiveRow) {
+    const ok = await confirm({
+      title: "Delete executive?",
+      message: `Permanently delete ${row.fullName}?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     deleteMutation.mutate({ id: row.id });
   }
 

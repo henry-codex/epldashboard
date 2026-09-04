@@ -22,6 +22,7 @@ import {
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
 
 const STATUS_FILTER = [
@@ -149,6 +150,7 @@ function copyFor(kind: OrgKind) {
 }
 
 export function PartnersManager({ tenantId, hubName, accent, kind = "placement", readOnly = false }: Props) {
+  const confirm = useConfirm();
   const copy = copyFor(kind);
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -280,13 +282,15 @@ export function PartnersManager({ tenantId, hubName, accent, kind = "placement",
     statusMutation.mutate({ tenantId, id: row.id, status: next });
   }
 
-  function archivePartner(row: PartnerRow) {
-    if (!window.confirm(copy.archiveConfirm(row.name))) return;
+  async function archivePartner(row: PartnerRow) {
+    const ok = await confirm({ title: "Archive partner?", message: copy.archiveConfirm(row.name), confirmLabel: "Archive", danger: true });
+    if (!ok) return;
     statusMutation.mutate({ tenantId, id: row.id, status: "archived" });
   }
 
-  function deletePartner(row: PartnerRow) {
-    if (!window.confirm(copy.deleteConfirm(row.name))) return;
+  async function deletePartner(row: PartnerRow) {
+    const ok = await confirm({ title: "Delete partner?", message: copy.deleteConfirm(row.name), confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     deleteMutation.mutate({ tenantId, id: row.id });
   }
 

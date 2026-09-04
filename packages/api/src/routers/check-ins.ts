@@ -301,7 +301,7 @@ export const checkInsRouter = router({
     }
 
     const cohortYears = await checkInEligibleCohortYears(tenantId);
-    if (!cohortYears.includes(fellow.cohortYear)) {
+    if (fellow.cohortYear == null || !cohortYears.includes(fellow.cohortYear)) {
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: "Check-ins only apply to active fellows in in-progress cohorts",

@@ -28,6 +28,7 @@ import { CohortSelect } from "@/components/epl/cohort-select";
 import { SlideToggle } from "@/components/epl/slide-toggle";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
 import { OrgTree, type OrgTreeNode } from "@/components/epl/org-tree";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
 
 type LeaderRow = {
@@ -304,6 +305,7 @@ function EnhancedLeaderCard({
 }
 
 export function AlumniLeadersManager({ tenantId, hubName, accent, readOnly = false }: Props) {
+  const confirm = useConfirm();
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<LeaderForm>(EMPTY_FORM);
@@ -444,13 +446,25 @@ export function AlumniLeadersManager({ tenantId, hubName, accent, readOnly = fal
     }
   }
 
-  function archiveLeader(row: LeaderRow) {
-    if (!window.confirm(`Archive ${row.fullName}?`)) return;
+  async function archiveLeader(row: LeaderRow) {
+    const ok = await confirm({
+      title: "Archive leader?",
+      message: `Archive ${row.fullName}?`,
+      confirmLabel: "Archive",
+      danger: true,
+    });
+    if (!ok) return;
     archiveMutation.mutate({ tenantId, id: row.id });
   }
 
-  function deleteLeader(row: LeaderRow) {
-    if (!window.confirm(`Permanently delete ${row.fullName}?`)) return;
+  async function deleteLeader(row: LeaderRow) {
+    const ok = await confirm({
+      title: "Delete leader?",
+      message: `Permanently delete ${row.fullName}?`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     deleteMutation.mutate({ tenantId, id: row.id });
   }
 
