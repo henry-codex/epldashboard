@@ -22,6 +22,7 @@
     "@neondatabase/serverless": "^1.0.2",
     "@types/pg": "^8.23.1",
     "dotenv": "catalog:",
+    "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.1",
     "pg": "^8.23.0",
     "postgres": "^3.4.9",
@@ -29,7 +30,6 @@
   },
   "devDependencies": {
     "@epl-fellows-platform/config": "workspace:*",
-    "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",
     "typescript": "catalog:"
   }
