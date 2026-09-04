@@ -19,7 +19,11 @@ export const auth = betterAuth({
   },
   advanced: {
     defaultCookieAttributes: {
-      sameSite: "lax",
+      // The deployed frontend (Vercel) and API (Heroku) are different sites,
+      // so the session cookie needs SameSite=None to survive cross-site
+      // fetch — Lax is only sent on top-level navigations, not XHR/fetch.
+      // None requires Secure, which only makes sense (and is set) in prod.
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
     },
