@@ -1,0 +1,22 @@
+{
+  "name": "epl-fellows-platform-server",
+  "description": "EPL Fellows Platform API server (tRPC + NestJS)",
+  "env": {
+    "BETTER_AUTH_SECRET": {
+      "description": "32+ character secret used to sign auth sessions",
+      "generator": "secret"
+    },
+    "BETTER_AUTH_URL": {
+      "description": "Public URL of this Heroku app, e.g. https://your-app.herokuapp.com"
+    },
+    "CORS_ORIGIN": {
+      "description": "URL of the Vercel-hosted frontend allowed to call this API"
+    }
+  },
+  "addons": [
+    "heroku-postgresql:essential-0"
+  ],
+  "buildpacks": [
+    { "url": "heroku/nodejs" }
+  ]
+}

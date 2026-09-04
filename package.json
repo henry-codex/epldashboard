@@ -18,7 +18,9 @@
     "db:seed": "turbo -F server db:seed",
     "db:studio": "turbo -F @epl-fellows-platform/db db:studio",
     "db:generate": "turbo -F @epl-fellows-platform/db db:generate",
-    "db:migrate": "turbo -F @epl-fellows-platform/db db:migrate"
+    "db:migrate": "turbo -F @epl-fellows-platform/db db:migrate",
+    "heroku-postbuild": "turbo run build --filter=server...",
+    "start": "pnpm --filter server start"
   },
   "dependencies": {
     "@epl-fellows-platform/env": "workspace:*",
@@ -32,5 +34,8 @@
     "turbo": "^2.6.3",
     "typescript": "catalog:"
   },
-  "packageManager": "pnpm@10.28.2"
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=20.0.0"
+  }
 }
