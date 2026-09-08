@@ -1,15 +1,24 @@
 import { hasAnyRole, hasPermission, type Permission, type UserRole } from "@epl-fellows-platform/auth";
 import { initTRPC, TRPCError } from "@trpc/server";
 
+import { assertGlobalOperations } from "./lib/platform-access";
 import type { Context } from "./context.js";
+import { auditMiddleware } from "./lib/audit-middleware";
 
-export const t = initTRPC.context<Context>().create();
+export const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape, error }) {
+    return { ...shape, data: { ...shape.data, mfaReason: error.cause instanceof MfaAccessError ? error.cause.reason : null } };
+  },
+});
+class MfaAccessError extends Error {
+  constructor(readonly reason: string) { super(reason); }
+}
 
 export const router = t.router;
 
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.use(auditMiddleware);
 
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+export const authenticatedProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.session || !ctx.session.user) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
@@ -23,6 +32,12 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
       session: ctx.session,
     },
   });
+});
+
+export const protectedProcedure = authenticatedProcedure.use(({ ctx, next }) => {
+  if (!ctx.mfa) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in again." });
+  if (ctx.mfa.reason) throw new TRPCError({ code: "FORBIDDEN", message: ctx.mfa.reason === "MFA_ENROLLMENT_REQUIRED" ? "Set up MFA before continuing." : "Verify MFA before continuing.", cause: new MfaAccessError(ctx.mfa.reason) });
+  return next({ ctx });
 });
 
 /**
@@ -58,6 +73,7 @@ export function requirePermission(permission: Permission) {
 }
 
 // Pre-configured Procedure Builders
+export const globalOperationsProcedure = protectedProcedure.use(({ ctx, next }) => { assertGlobalOperations(ctx); return next({ ctx }); });
 export const superAdminProcedure = requireRole("super_admin");
 export const adminProcedure = requireRole("super_admin", "tenant_admin");
 export const countryAdminProcedure = requireRole("super_admin", "tenant_admin", "country_admin");

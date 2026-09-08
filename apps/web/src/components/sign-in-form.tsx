@@ -7,8 +7,8 @@ import Link from "next/link";
 import { Eye, EyeOff, ArrowRight, Mail, Lock, LogIn } from "lucide-react";
 import { motion } from "framer-motion";
 import { authClient } from "@/lib/auth-client";
-import { queryClient, trpc } from "@/utils/trpc";
-import { homePathForSession } from "@/lib/home-path";
+import { queryClient } from "@/utils/trpc";
+import { finishMfaSignIn, mfaPath } from "@/lib/mfa";
 
 // Helper function to merge class names
 const cn = (...classes: string[]) => {
@@ -183,11 +183,13 @@ const DotMap = () => {
   );
 };
 
-export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
+import { PasskeySignIn } from "./epl/passkey-sign-in";
+
+export default function SignInForm({ returnTo }: { returnTo?: string | null } = {}) {
   const router = useRouter();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [email, setEmail] = useState("test@gmail.com");
-  const [password, setPassword] = useState("12345678");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
@@ -208,18 +210,13 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
       if (error) {
         toast.error(error.message || "Failed to sign in. Check your credentials.");
       } else {
-        toast.success("Sign in successful!");
-        try {
-          const me = await queryClient.fetchQuery(trpc.privateData.queryOptions());
-          router.push(
-            homePathForSession({
-              role: me.role,
-              tenantId: me.tenant?.id ?? me.tenantId,
-            }) as never,
-          );
-        } catch {
-          router.push("/dashboard");
+        if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
+          queryClient.clear(); setPassword(""); router.push(mfaPath("verify", returnTo) as never); return;
         }
+        const destination = await finishMfaSignIn(returnTo);
+        setPassword("");
+        if (!destination.startsWith("/mfa/")) toast.success("Sign in successful!");
+        router.push(destination as never);
       }
     } catch (err: any) {
       toast.error(err?.message || "An unexpected error occurred.");
@@ -378,8 +375,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs pt-1">
-                <span className="text-slate-500 font-medium">Default: test@gmail.com</span>
+              <div className="flex items-center justify-end text-xs pt-1">
                 <Link
                   href="/forgot-password"
                   className="font-bold text-blue-600 hover:text-blue-700 transition-colors"
@@ -408,16 +404,10 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
                 </button>
               </motion.div>
 
+              <div className="login-passkey"><PasskeySignIn returnTo={returnTo} disabled={isSubmitting} onBusyChange={setIsSubmitting} /></div>
               <div className="text-center pt-4">
                 <p className="text-xs text-slate-500 font-medium">
-                  Don't have an account?{" "}
-                  <button
-                    type="button"
-                    onClick={onSwitchToSignUp}
-                    className="font-bold text-blue-600 hover:text-blue-700 transition-colors"
-                  >
-                    Create Account
-                  </button>
+                  New to EPL? Ask your administrator for an email invitation.
                 </p>
               </div>
             </form>

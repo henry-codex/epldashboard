@@ -1,35 +1,24 @@
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { db, transactionalDb, type AccessTransaction } from "@epl-fellows-platform/db";
+import { env } from "@epl-fellows-platform/env/server";
+import { sendPasswordResetEmail, sendInvitationEmail, sendOtpEmail } from "@epl-fellows-platform/email";
+import { createAuth } from "./create-auth";
+import { createInvitationService } from "./invitation-service";
+
 export { fromNodeHeaders, toNodeHandler } from "better-auth/node";
+const authOptions = {
+  database: db, mfaDatabase: transactionalDb, secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL,
+  trustedOrigin: env.CORS_ORIGIN, production: env.NODE_ENV === "production", sendPasswordResetEmail, sendOtpEmail, passkeyRpId: env.PASSKEY_RP_ID,
+};
 
-import { db } from "@epl-fellows-platform/db";
-import * as schema from "@epl-fellows-platform/db/schema/auth";
-
-export const auth = betterAuth({
-  secret: process.env.BETTER_AUTH_SECRET || "development_secret_32_characters_long_key",
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
-  database: drizzleAdapter(db, {
-    provider: "pg",
-
-    schema: schema,
-  }),
-  trustedOrigins: [process.env.CORS_ORIGIN || "http://localhost:3001"],
-  emailAndPassword: {
-    enabled: true,
-  },
-  advanced: {
-    defaultCookieAttributes: {
-      // The deployed frontend (Vercel) and API (Heroku) are different sites,
-      // so the session cookie needs SameSite=None to survive cross-site
-      // fetch — Lax is only sent on top-level navigations, not XHR/fetch.
-      // None requires Secure, which only makes sense (and is set) in prod.
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      secure: process.env.NODE_ENV === "production",
-      httpOnly: true,
-    },
-  },
-  plugins: [],
+/** Trusted server/CLI provisioning. No HTTP handler is exposed for this auth instance. */
+export async function createAccountInTransaction(tx: AccessTransaction, input: { name: string; email: string; password: string }) {
+  const provisioning = createAuth({ ...authOptions, database: tx, mfaDatabase: tx, trustedAccountCreation: true });
+  const result = await provisioning.api.signUpEmail({ body: input });
+  return result.user;
+}
+export const invitationService = createInvitationService({
+  database: transactionalDb, frontendURL: env.CORS_ORIGIN,
+  createUser: createAccountInTransaction, sendEmail: sendInvitationEmail,
 });
-
+export const auth = createAuth({ ...authOptions, invitations: invitationService });
 export * from "./permissions";
-

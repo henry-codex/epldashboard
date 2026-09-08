@@ -79,7 +79,7 @@ export default function CountryEventsPage() {
           hubName={hub.name}
           accent={hub.color}
           readOnly={!canManage}
-          isSuperAdmin={home.role === "super_admin"}
+          isSuperAdmin={home.capabilities.globalOperations}
         />
       </div>
     </CountryLayout>

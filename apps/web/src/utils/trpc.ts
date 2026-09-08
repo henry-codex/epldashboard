@@ -9,10 +9,21 @@ import { toast } from "sonner";
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
+      const data = (error as { data?: { mfaReason?: string; code?: string } }).data;
+      if (data?.code === "UNAUTHORIZED" && typeof window !== "undefined") { window.location.assign("/login"); return; }
+      if (data?.mfaReason && typeof window !== "undefined") {
+        window.location.assign("/mfa/" + (data.mfaReason === "MFA_ENROLLMENT_REQUIRED" ? "setup" : "verify"));
+        return;
+      }
       toast.error(error.message, {
         action: {
-          label: "retry",
-          onClick: query.invalidate,
+          label: "Retry",
+          onClick: () => {
+            void queryClient.refetchQueries(
+              { queryKey: query.queryKey, exact: true },
+              { cancelRefetch: false },
+            );
+          },
         },
       });
     },

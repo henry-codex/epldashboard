@@ -2,8 +2,23 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
   "globalEnv": [
-    "NEON_AUTH_BASE_URL",
-    "NEON_AUTH_COOKIE_SECRET",
+    "DATABASE_URL",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "CORS_ORIGIN",
+    "PASSKEY_RP_ID",
+    "TRUSTED_PROXY_CIDRS",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_SECURE",
+    "SMTP_USER",
+    "SMTP_PASS",
+    "SMTP_FROM_EMAIL",
+    "TEST_DATABASE_URL",
+    "BOOTSTRAP_ADMIN_EMAIL",
+    "BOOTSTRAP_ADMIN_PASSWORD",
+    "BOOTSTRAP_ADMIN_NAME",
+    "BOOTSTRAP_OPERATOR",
     "NEXT_PUBLIC_APP_URL",
     "NEXT_PUBLIC_SERVER_URL",
     "NODE_ENV"
@@ -12,8 +27,6 @@
     "build": {
       "dependsOn": ["^build"],
       "env": [
-        "NEON_AUTH_BASE_URL",
-        "NEON_AUTH_COOKIE_SECRET",
         "NEXT_PUBLIC_APP_URL",
         "NEXT_PUBLIC_SERVER_URL"
       ],
@@ -28,6 +41,11 @@
     },
     "test": {
       "dependsOn": ["^test"]
+    },
+    "@epl-fellows-platform/api#test": { "dependsOn": ["^test"], "cache": false },
+    "@epl-fellows-platform/auth#test": {
+      "dependsOn": ["^test"],
+      "cache": false
     },
     "dev": {
       "cache": false,

@@ -396,7 +396,7 @@ const SignInCard = () => {
                   )}
                   onClick={(e) => {
                     e.preventDefault();
-                    console.log("Sign in attempt with:", { email, password });
+                    // Connect this demonstration form to authentication before use.
                   }}
                 >
                   <span className="flex items-center justify-center">

@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { canViewPlatform } from "../lib/platform-access";
 import { eq, ne, desc, sql } from "drizzle-orm";
-import { auth } from "@epl-fellows-platform/auth";
-import { db, tenants, userTenants } from "@epl-fellows-platform/db";
-import { user } from "@epl-fellows-platform/db/schema/auth";
+import { invitationService } from "@epl-fellows-platform/auth";
+import { profileNameSchema } from "@epl-fellows-platform/auth/account-policy";
+import { invitationEmailSchema } from "@epl-fellows-platform/auth/invitation-policy";
+import { invitationCall } from "../lib/invitation-call";
+import { db, tenants } from "@epl-fellows-platform/db";
 import { router, requirePermission, protectedProcedure } from "../index";
 
 function slugify(name: string) {
@@ -85,11 +88,11 @@ export const tenantsRouter = router({
           where: eq(tenants.countryCode, key.toUpperCase()),
         }));
 
-      if (!row || row.countryCode === "GLOBAL") {
+      if (!row || row.countryCode === "GLOBAL" || (ctx.role === "tenant_admin" && !row.isActive)) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Country hub not found" });
       }
 
-      const isPlatformAdmin = ctx.role === "super_admin";
+      const isPlatformAdmin = canViewPlatform(ctx);
       if (!isPlatformAdmin && ctx.tenantId !== row.id) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -102,7 +105,7 @@ export const tenantsRouter = router({
 
   /** Partner nations (excludes GLOBAL platform tenant) */
   list: protectedProcedure.query(async ({ ctx }) => {
-    const isPlatformAdmin = ctx.role === "super_admin";
+    const isPlatformAdmin = canViewPlatform(ctx);
 
     const rows = await db
       .select({
@@ -123,7 +126,7 @@ export const tenantsRouter = router({
       .orderBy(desc(tenants.createdAt));
 
     const mapped = rows.map((r) => mapTenant(r));
-    if (isPlatformAdmin) return mapped;
+    if (isPlatformAdmin) return ctx.role === "tenant_admin" ? mapped.filter(hub => hub.isActive) : mapped;
     if (!ctx.tenantId) return [];
     return mapped.filter((r) => r.id === ctx.tenantId);
   }),
@@ -183,115 +186,24 @@ export const tenantsRouter = router({
       return mapTenant({ ...created, memberCount: 0 });
     }),
 
-  /** Create a country hub and its first country admin in one step */
-  createWithAdmin: requirePermission("tenants:manage")
-    .input(
-      z.object({
-        name: z.string().min(2).max(100),
-        countryCode: z
-          .string()
-          .min(2)
-          .max(3)
-          .transform((v) => v.toUpperCase()),
-        flag: z.string().max(8).optional(),
-        iso2: z
-          .string()
-          .length(2)
-          .transform((v) => v.toUpperCase())
-          .optional(),
-        color: z.string().max(32).optional().default("#4150A3"),
-        adminName: z.string().min(2).max(100),
-        adminEmail: z.string().email(),
-        adminPassword: z.string().min(8).max(72),
-      }),
-    )
-    .mutation(async ({ input }) => {
+  /** Create a hub and its first administrator invitation atomically. */
+  createWithInvitation: requirePermission("tenants:manage")
+    .input(z.object({
+      name: z.string().trim().min(2).max(100),
+      countryCode: z.string().min(2).max(3).transform((value) => value.toUpperCase()),
+      flag: z.string().max(8).optional(),
+      iso2: z.string().length(2).transform((value) => value.toUpperCase()).optional(),
+      color: z.string().max(32).optional().default("#4150A3"),
+      adminName: profileNameSchema,
+      adminEmail: invitationEmailSchema,
+    }).strict())
+    .mutation(async ({ ctx, input }) => {
       const slug = await allocateSlug(input.name, input.countryCode);
-
-      const codeTaken = await db.query.tenants.findFirst({
-        where: eq(tenants.countryCode, input.countryCode),
-      });
-      if (codeTaken) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `A country hub with ISO code ${input.countryCode} already exists.`,
-        });
-      }
-
-      const emailTaken = await db.query.user.findFirst({
-        where: eq(user.email, input.adminEmail.toLowerCase()),
-      });
-      if (emailTaken) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "A user with this email already exists",
-        });
-      }
-
-      const settings = tenantSettingsSchema.parse({
-        flag: input.flag,
-        color: input.color,
-        iso2: input.iso2,
-      });
-
-      const [created] = await db
-        .insert(tenants)
-        .values({
-          name: input.name.trim(),
-          slug,
-          countryCode: input.countryCode,
-          settings,
-          isActive: true,
-        })
-        .returning();
-
-      if (!created) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create country hub" });
-      }
-
-      let createdUser: { id: string; email: string; name: string };
-      try {
-        const result = await auth.api.signUpEmail({
-          body: {
-            email: input.adminEmail.toLowerCase(),
-            password: input.adminPassword,
-            name: input.adminName.trim(),
-          },
-        });
-        createdUser = result.user;
-      } catch (err: unknown) {
-        await db.delete(tenants).where(eq(tenants.id, created.id));
-        const message = err instanceof Error ? err.message : "Failed to create admin account";
-        throw new TRPCError({ code: "BAD_REQUEST", message });
-      }
-
-      const [membership] = await db
-        .insert(userTenants)
-        .values({
-          userId: createdUser.id,
-          tenantId: created.id,
-          role: "country_admin",
-          permissions: {},
-        })
-        .returning();
-
-      if (!membership) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Hub created but admin role assignment failed",
-        });
-      }
-
-      return {
-        tenant: mapTenant({ ...created, memberCount: 1 }),
-        admin: {
-          id: membership.id,
-          userId: createdUser.id,
-          name: createdUser.name,
-          email: createdUser.email,
-          role: "country_admin" as const,
-        },
-      };
+      const settings = tenantSettingsSchema.parse({ flag: input.flag, color: input.color, iso2: input.iso2 });
+      const result = await invitationCall(() => invitationService.createWithHub(ctx.session.user.id,
+        { name: input.name, slug, countryCode: input.countryCode, settings },
+        { name: input.adminName, email: input.adminEmail }));
+      return { tenant: mapTenant({ ...result.hub, memberCount: 0 }), invitation: result.invitation };
     }),
 
   /** Edit a hub's display name and settings (color, flag, iso2) */

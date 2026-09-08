@@ -53,12 +53,12 @@ type Props = {
 
 export function EPLSidebar({ collapsed, onCollapse, activePage, user, ready = true }: Props) {
   const router = useRouter();
-  const { role } = useHomePath();
+  const { capabilities } = useHomePath();
   // The platform-wide "Programs" tab duplicates what Super Admins already
   // get in Data > By Program / Country Stats, with none of the honesty
   // fixes applied there — hide it from that role rather than maintain two
   // versions of the same view.
-  const navItems = role === "super_admin" ? NAV_ITEMS.filter((item) => item.key !== "programs") : NAV_ITEMS;
+  const navItems = capabilities.platformView ? NAV_ITEMS.filter((item) => item.key !== "programs") : NAV_ITEMS;
 
   async function handleSignOut() {
     await authClient.signOut();

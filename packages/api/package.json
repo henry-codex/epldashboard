@@ -9,7 +9,7 @@
       "default": "./src/*.ts"
     }
   },
-  "scripts": {},
+  "scripts": { "test": "vitest run --passWithNoTests", "check-types": "tsc --noEmit --composite false" },
   "dependencies": {
     "@epl-fellows-platform/auth": "workspace:*",
     "@epl-fellows-platform/db": "workspace:*",

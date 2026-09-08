@@ -11,10 +11,16 @@
   },
   "scripts": {
     "db:push": "drizzle-kit push",
+    "db:setup-invitations": "tsx src/scripts/setup-invitations.ts",
+    "db:setup-mfa": "tsx src/scripts/setup-mfa.ts",
+    "db:migrate-tenant-admins": "tsx src/scripts/migrate-tenant-admins.ts",
+    "db:setup-audit": "tsx src/scripts/setup-audit.ts",
+    "audit:retain": "tsx src/scripts/retain-audit.ts",
+    "check-types": "tsc --noEmit --composite false",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx src/seed.ts",
+    "db:seed": "pnpm --filter server db:seed",
     "import:country-data": "tsx src/scripts/import-country-data.ts"
   },
   "dependencies": {

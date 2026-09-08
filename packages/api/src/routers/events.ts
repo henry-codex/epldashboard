@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
+import { canManageGlobalOperations } from "../lib/platform-access";
+import { and, asc, desc, eq, gte, ilike, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db, hubEvents, tenants } from "@epl-fellows-platform/db";
 import { router, protectedProcedure } from "../index";
 import { assertTenantAccess, resolveTenantId } from "../lib/tenant-access.js";
@@ -74,6 +75,7 @@ async function resolveGlobalTenantId(): Promise<string> {
       isActive: true,
     })
     .returning();
+  if (!created) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Could not create the global hub" });
   return created.id;
 }
 
@@ -187,19 +189,20 @@ export const eventsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const isSuperAdmin = ctx.role === "super_admin";
+      const isSuperAdmin = canManageGlobalOperations(ctx);
       const isGlobal = Boolean(input.isGlobal);
 
       if (isGlobal && !isSuperAdmin) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only Super Admins can create global events",
+          message: "Global operations access is required to create global events",
         });
       }
 
       let targetTenantId: string;
       if (isGlobal) {
-        targetTenantId = input.tenantId ?? (await resolveGlobalTenantId());
+        targetTenantId = await resolveGlobalTenantId();
+        if (input.tenantId && input.tenantId !== targetTenantId) throw new TRPCError({ code: "BAD_REQUEST", message: "Global events belong to EPL Global Platform." });
       } else {
         assertNetworkManager(ctx);
         targetTenantId = resolveTenantId(ctx, input.tenantId);
@@ -240,7 +243,7 @@ export const eventsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const isSuperAdmin = ctx.role === "super_admin";
+      const isSuperAdmin = canManageGlobalOperations(ctx);
 
       const existing = await db.query.hubEvents.findFirst({
         where: eq(hubEvents.id, input.id),
@@ -249,10 +252,11 @@ export const eventsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Event not found" });
       }
 
+      if (ctx.role === "tenant_admin" && !existing.isGlobal) await assertTenantAccess(ctx, existing.tenantId);
       if (existing.isGlobal && !isSuperAdmin) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only Super Admins can edit global events",
+          message: "Global operations access is required to edit global events",
         });
       }
 
@@ -279,8 +283,16 @@ export const eventsRouter = router({
       if (input.venue !== undefined) patch.venue = input.venue?.trim() || null;
       if (input.onlineUrl !== undefined) patch.onlineUrl = input.onlineUrl?.trim() || null;
       if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
-      if (input.isGlobal !== undefined && isSuperAdmin) patch.isGlobal = input.isGlobal;
-      if (input.tenantId !== undefined && isSuperAdmin) patch.tenantId = input.tenantId;
+      if (isSuperAdmin && (input.isGlobal !== undefined || input.tenantId !== undefined)) {
+        const isGlobal = input.isGlobal ?? existing.isGlobal;
+        const target = isGlobal ? await resolveGlobalTenantId() : input.tenantId ?? existing.tenantId;
+        if (isGlobal && input.tenantId && input.tenantId !== target) throw new TRPCError({ code: "BAD_REQUEST", message: "Global events belong to EPL Global Platform." });
+        if (!isGlobal) {
+          const hub = await db.query.tenants.findFirst({ where: eq(tenants.id, target) });
+          if (!hub || hub.countryCode === "GLOBAL" || (ctx.role === "tenant_admin" && !hub.isActive)) throw new TRPCError({ code: "BAD_REQUEST", message: "Select an active country hub." });
+        }
+        patch.isGlobal = isGlobal; patch.tenantId = target;
+      }
 
       const [updated] = await db
         .update(hubEvents)
@@ -298,7 +310,7 @@ export const eventsRouter = router({
   delete: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid().optional(), id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const isSuperAdmin = ctx.role === "super_admin";
+      const isSuperAdmin = canManageGlobalOperations(ctx);
 
       const existing = await db.query.hubEvents.findFirst({
         where: eq(hubEvents.id, input.id),
@@ -307,10 +319,11 @@ export const eventsRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Event not found" });
       }
 
+      if (ctx.role === "tenant_admin" && !existing.isGlobal) await assertTenantAccess(ctx, existing.tenantId);
       if (existing.isGlobal && !isSuperAdmin) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "Only Super Admins can delete global events",
+          message: "Global operations access is required to delete global events",
         });
       }
 

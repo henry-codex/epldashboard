@@ -15,6 +15,7 @@ type Crumb = { label: string; href?: string };
 
 type Props = {
   title: string;
+  minimal?: boolean;
   breadcrumbs?: Crumb[];
   logoHref?: string;
   searchPlaceholder?: string;
@@ -25,6 +26,7 @@ type Props = {
 
 export function DashHeader({
   title,
+  minimal = false,
   breadcrumbs = [],
   logoHref = "/dashboard",
   searchPlaceholder = "Search for fellows, programs, or regions...",
@@ -77,7 +79,7 @@ export function DashHeader({
       </div>
 
       {/* Center: Search Bar */}
-      <div style={{ flex: 1, maxWidth: 400, margin: "0 24px", position: "relative" }}>
+      {!minimal && <div style={{ flex: 1, maxWidth: 400, margin: "0 24px", position: "relative" }}>
         <IconSearch size={16} style={{ 
           position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
           color: "var(--e-text-sec)", pointerEvents: "none"
@@ -109,12 +111,12 @@ export function DashHeader({
             e.currentTarget.style.boxShadow = "none";
           }}
         />
-      </div>
+      </div>}
 
       {/* Right: date, bell, theme toggle */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {/* Date chip */}
-        <div style={{
+        {!minimal && <><div style={{
           padding: "3px 10px",
           borderRadius: "6px",
           background: "rgba(120, 150, 255, 0.12)",
@@ -146,7 +148,7 @@ export function DashHeader({
             border: "1.5px solid #FFF",
             boxShadow: "0 0 4px #4150A3",
           }} />
-        </button>
+        </button></>}
 
         {/* Theme toggle */}
         <button

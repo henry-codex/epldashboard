@@ -62,6 +62,7 @@ epl-fellows-platform/
 - `pnpm test` - Run tests
 - `pnpm db:push` - Push database schema
 - `pnpm db:studio` - Open database UI
+- `pnpm db:seed` - Trusted initial administrator bootstrap; requires supplied BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD. See docs/USER-ONBOARDING.md. Public signup is disabled; subsequent accounts require invitations.
 
 ## Environment Variables
 
@@ -90,3 +91,15 @@ Keep CLAUDE.md updated when:
 - Modifying build/dev workflows
 
 AI assistants should suggest updates to this file when they notice relevant changes.
+
+## Audit trail
+
+Settings includes an administrator-only Audit Log. Apply `pnpm --filter @epl-fellows-platform/db db:setup-audit` before starting the server. Audited mutations use transaction context and PostgreSQL triggers for business records; security events share the auth transactions. Bootstrap requires `BOOTSTRAP_OPERATOR`; applied CLI imports require `--operator`. See `docs/AUDIT-LOG.md` for event coverage, redaction, authorization, and the dry-run-first 12-month retention command. Preserve audit history independently of the mutable activity feed.
+
+## Account security
+
+Shared account profile and security settings use Better Auth. Password resets use the shared `packages/email` Nodemailer transport, configured with SMTP_* variables; local mail is captured in Mailpit. Password changes revoke other sessions; recovery revokes all sessions. See `docs/ACCOUNT-SETTINGS.md` for configuration and isolated tests.
+
+## Global Tenant Admin
+
+Tenant Admin uses the existing active GLOBAL workspace for cross-country operations, global events and alumni board management. Super Admin retains hub and membership administration. Before startup, run the dry-run-first db:migrate-tenant-admins command and resolve reported blockers. See docs/TENANT-ADMIN.md. Shared capabilities come from current active memberships; do not grant global access from the role string alone.

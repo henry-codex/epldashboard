@@ -30,7 +30,7 @@ export default function MapPage() {
   const home = useHomePath();
   const overviewQuery = useQuery({
     ...trpc.platform.overview.queryOptions(),
-    enabled: Boolean(session?.user) && !home.isLoading && home.role === "super_admin",
+    enabled: Boolean(session?.user) && !home.isLoading && home.capabilities.platformView,
   });
 
   useEffect(() => {
