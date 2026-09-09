@@ -47,3 +47,12 @@ CREATE TABLE IF NOT EXISTS public.mfa_email_send (
  created_at timestamp NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS mfa_email_send_user_time_idx ON public.mfa_email_send(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS public.mfa_browser (
+ id text PRIMARY KEY, user_id text NOT NULL REFERENCES public."user"(id) ON DELETE CASCADE,
+ token_hash text NOT NULL UNIQUE, verified_at timestamp NOT NULL, verification_method text NOT NULL,
+ expires_at timestamp NOT NULL, revoked_at timestamp
+);
+CREATE INDEX IF NOT EXISTS mfa_browser_user_idx ON public.mfa_browser(user_id);
+ALTER TABLE public.session ADD COLUMN IF NOT EXISTS mfa_browser_id text;
+CREATE INDEX IF NOT EXISTS session_mfa_browser_idx ON public.session(mfa_browser_id);

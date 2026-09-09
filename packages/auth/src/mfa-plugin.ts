@@ -1,3 +1,7 @@
+import { expireCookie, deleteSessionCookie } from "better-auth/cookies";
+import { revokeRememberedBrowsers } from "@epl-fellows-platform/db/mfa-browsers";
+import { MFA_BROWSER_COOKIE, readRememberedBrowser } from "./mfa-browser";
+import { clearMfaChallenges } from "./mfa-store";
 import { randomUUID, randomBytes } from "node:crypto";
 import { APIError, createAuthEndpoint, getSessionFromCtx, sessionMiddleware } from "better-auth/api";
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
@@ -39,8 +43,7 @@ export function mfaManagementPlugin(runtime: MfaRuntime, sendEmail: OtpSender) {
   }
   async function sendOtp(ctx: SecurityContext, purpose: "login" | "enrollment") {
     const who = await challengeIdentity(runtime, ctx), db = runtime.current();
-    const { person, status } = await accountStatus(runtime, who.userId, who.sessionId);
-    if (status.required) throw new APIError("FORBIDDEN", { code: "MFA_METHOD_NOT_ALLOWED", message: "Administrators must use an authenticator or passkey." });
+    const { person } = await accountStatus(runtime, who.userId, who.sessionId);
     if (purpose === "enrollment") {
       if (!who.identity) throw new APIError("UNAUTHORIZED");
       await requireGrant(runtime, who.userId, who.binding, "email-authorization");
@@ -72,6 +75,21 @@ export function mfaManagementPlugin(runtime: MfaRuntime, sendEmail: OtpSender) {
   return {
     id: "epl-mfa-management",
     endpoints: {
+      forgetMfaBrowser: createAuthEndpoint("/two-factor/forget-browser", { method: "POST", use: [sessionMiddleware] }, async (ctx) => {
+        const id = ctx.context.session.user.id, db = runtime.current();
+        const remembered = await readRememberedBrowser(db, ctx, id);
+        const [device] = await db.select().from(session).where(eq(session.id, ctx.context.session.session.id));
+        const browserIds = new Set([remembered?.id, device?.mfaBrowserId].filter((value): value is string => Boolean(value)));
+        for (const browserId of browserIds) {
+          await revokeRememberedBrowsers(db, id, { onlyId: browserId, reason: "BROWSER_FORGOTTEN" });
+          await db.delete(session).where(and(eq(session.userId, id), eq(session.mfaBrowserId, browserId)));
+        }
+        await ctx.context.internalAdapter.deleteSession(ctx.context.session.session.token);
+        await clearMfaChallenges(db, id);
+        expireCookie(ctx, ctx.context.createAuthCookie(MFA_BROWSER_COOKIE));
+        deleteSessionCookie(ctx);
+        return { status: true };
+      }),
       mfaChallengeStatus: createAuthEndpoint("/two-factor/challenge-status", { method: "GET" }, async (ctx) => {
         ctx.setHeader("Cache-Control", "no-store");
         const identity = await getSessionFromCtx(ctx);
@@ -117,6 +135,7 @@ export function mfaManagementPlugin(runtime: MfaRuntime, sendEmail: OtpSender) {
       generateBackupCodes: createAuthEndpoint("/two-factor/generate-backup-codes", { method: "POST", body: passwordBody, use: [sessionMiddleware] }, async (ctx) => {
         await requirePassword(ctx, ctx.context.session.user.id);
         const backupCodes = await ensureBackupCodes(runtime, ctx, ctx.context.session.user.id, true);
+        await revokeMfaSessions(runtime.current(), ctx.context.session.user.id, ctx.context.session.session.id);
         await auditMfa(runtime.current(), ctx.context.session.user.id, "mfa.backup_codes_regenerated");
         return { backupCodes };
       }),
@@ -127,8 +146,6 @@ export function mfaManagementPlugin(runtime: MfaRuntime, sendEmail: OtpSender) {
       disableTwoFactor: createAuthEndpoint("/two-factor/disable", { method: "POST", body: passwordBody, use: [sessionMiddleware] }, async (ctx) => {
         const id = ctx.context.session.user.id, db = runtime.current();
         await requirePassword(ctx, id);
-        const { keys, status } = await accountStatus(runtime, id, ctx.context.session.session.id);
-        if (status.required && !keys.length) throw new APIError("FORBIDDEN", { code: "MFA_REQUIRED_FOR_ROLE", message: "Keep at least one authenticator or passkey. Use Replace authenticator to recover setup." });
         await db.delete(twoFactor).where(eq(twoFactor.userId, id));
         await db.update(user).set({ totpEnabled: false }).where(eq(user.id, id));
         await syncEnabled(runtime, id);
@@ -139,8 +156,8 @@ export function mfaManagementPlugin(runtime: MfaRuntime, sendEmail: OtpSender) {
       enrollEmailOtp: createAuthEndpoint("/two-factor/email-enroll", { method: "POST", body: passwordBody, use: [sessionMiddleware] }, async (ctx) => {
         const id = ctx.context.session.user.id;
         await requirePassword(ctx, id);
-        const { person, status } = await accountStatus(runtime, id, ctx.context.session.session.id);
-        if (status.required || person.emailOtpEnabled) throw new APIError("FORBIDDEN", { code: "MFA_METHOD_NOT_ALLOWED", message: status.required ? "Administrators must use an authenticator or passkey." : "Email codes are already enabled." });
+        const { person } = await accountStatus(runtime, id, ctx.context.session.session.id);
+        if (person.emailOtpEnabled) throw new APIError("FORBIDDEN", { code: "MFA_METHOD_NOT_ALLOWED", message: "Email codes are already enabled." });
         await prepareGrant(runtime, id, ctx.context.session.session.id, "email-authorization");
         const backupCodes = await ensureBackupCodes(runtime, ctx, id);
         return { ...await sendOtp(ctx, "enrollment"), backupCodes };
@@ -148,8 +165,7 @@ export function mfaManagementPlugin(runtime: MfaRuntime, sendEmail: OtpSender) {
       sendTwoFactorOTP: createAuthEndpoint("/two-factor/send-otp", { method: "POST", body: z.object({ purpose: emailPurpose }) }, (ctx) => sendOtp(ctx, ctx.body.purpose)),
       verifyTwoFactorOTP: createAuthEndpoint("/two-factor/verify-otp", { method: "POST", body: codeBody.extend({ purpose: emailPurpose }) }, async (ctx) => {
         const who = await challengeIdentity(runtime, ctx), db = runtime.current();
-        const { person, status } = await accountStatus(runtime, who.userId, who.sessionId);
-        if (status.required) throw new APIError("FORBIDDEN", { code: "MFA_METHOD_NOT_ALLOWED", message: "Use an authenticator or passkey for administrator access." });
+        const { person } = await accountStatus(runtime, who.userId, who.sessionId);
         const enrollment = ctx.body.purpose === "enrollment";
         if (enrollment) {
           if (!who.identity || person.emailOtpEnabled) throw new APIError("FORBIDDEN", { code: "MFA_METHOD_NOT_ALLOWED", message: "This code cannot be used for this account or purpose." });

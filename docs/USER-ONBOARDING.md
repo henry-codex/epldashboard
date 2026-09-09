@@ -78,7 +78,7 @@ Activity-log records cover invitation creation, resend, cancellation and accepta
 
 ## Verification
 
-Follow the disposable PostgreSQL and Mailpit commands in [Account settings](ACCOUNT-SETTINGS.md). Both DATABASE_URL and TEST_DATABASE_URL must refer to the loopback database `epl_settings_test` on port 55432. Set the isolated SMTP values and frontend/API URLs before applying the schema, then run:
+Follow the disposable PostgreSQL and Mailpit commands in [Account settings](ACCOUNT-SETTINGS.md). Both DATABASE_URL and TEST_DATABASE_URL must refer to the loopback database `epl_settings_test` on port 55432 (or the documented 15432 fallback). Set the isolated SMTP values and frontend/API URLs before applying the schema, then run:
 
 ```powershell
 pnpm test
@@ -99,11 +99,15 @@ Browser checks exercised real Mailpit invitation acceptance, a stopped SMTP serv
 Trusted bootstrap was also run with supplied credentials against the existing isolated administrator and made no changes. The test services were stopped afterward. The schema regression test uses the disposable PostgreSQL database and rolls back its changes. The targeted setup command was also applied to the existing local development database to add its missing invitation table; the application's .env files and production services were not changed.
 
 
-## Administrator MFA
+## Optional account protection
 
-Administrator invitations require authenticator or passkey enrollment before dashboard access. Email OTP cannot satisfy administrator access. See [MFA setup and recovery](MFA.md) for database setup, backup codes and trusted operator recovery.
+Invitations and role promotions do not require MFA enrollment. Every role can enable an authenticator, passkeys or email codes in Settings → Security. Enabled accounts still verify before invitation acceptance or dashboard access; validated invitation continuation is retained after verification or skipping optional setup. See [MFA setup and recovery](MFA.md) for database setup, backup codes and trusted operator recovery.
 
 
 ## Global Tenant Admin migration
 
 Tenant Admin invitations target EPL Global Platform. Existing country-scoped Tenant Admin accounts require the repeatable migration described in [Global Tenant Admin](TENANT-ADMIN.md), including replacement Country Admins where needed, session revocation, and cancellation of old country-scoped Tenant Admin invitations.
+
+## Weekly MFA verification
+
+MFA is optional for every role. Enrolled accounts automatically remember each verified browser for seven days, including after ordinary sign-out. New browsers still require verification; password sign-ins do not extend the seven-day window. Security-method changes and backup-code regeneration still require the password and verification within five minutes. Settings > Security shows the expiry and offers **Forget this browser and sign out**. Password recovery and access/security revocation invalidate remembered browsers without disabling enrolled factors. See [MFA setup and recovery](MFA.md) for the additive `db:setup-mfa` command and rollout details.

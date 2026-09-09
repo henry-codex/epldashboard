@@ -5,11 +5,14 @@ import { twoFactor } from "better-auth/plugins";
 import { randomUUID } from "node:crypto";
 import { deleteSessionCookie, expireCookie } from "better-auth/cookies";
 import { securePasskeyPlugin, passkeyConfiguration } from "./mfa-passkey";
+import { and, eq } from "drizzle-orm";
+import { session } from "@epl-fellows-platform/db/schema/auth";
+import { readRememberedBrowser } from "./mfa-browser";
 import { accountStatus } from "./mfa-methods";
 import { trustedSecurityOrigin } from "./mfa-origin";
 import { createMfaRuntime } from "./mfa-runtime";
 import { mfaManagementPlugin, type OtpSender } from "./mfa-plugin";
-import { MFA_ISSUER } from "./mfa-policy";
+import { MFA_ISSUER, MFA_REMEMBER_SECONDS } from "./mfa-policy";
 import type { MfaDatabase } from "./mfa-store";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { profileNameSchema } from "./account-policy";
@@ -40,10 +43,16 @@ export function createAuth(options: AuthOptions) {
     handler: createAuthMiddleware(async (ctx) => {
       const data = ctx.context.newSession;
       if (!data) return;
-      const { status } = await accountStatus(runtime, data.user.id, data.session.id);
-      // A promoted email-only administrator receives a restricted password session
-      // solely to enroll a first strong method. Email proof grants no admin access.
-      if (!status.enabled || status.reason === "MFA_ENROLLMENT_REQUIRED") return;
+      const { status, person } = await accountStatus(runtime, data.user.id, data.session.id);
+      if (!status.enabled) return;
+      const remembered = await readRememberedBrowser(runtime.current(), ctx, data.user.id);
+      if (remembered && (!person.mfaLockedUntil || person.mfaLockedUntil <= new Date()) && status.permittedMethods.some((method) => method === remembered.verificationMethod)
+        && remembered.verifiedAt.getTime() <= Date.now() && Date.now() < remembered.verifiedAt.getTime() + MFA_REMEMBER_SECONDS * 1000) {
+        await runtime.current().update(session).set({ mfaVerifiedAt: remembered.verifiedAt, mfaVerificationMethod: remembered.verificationMethod, mfaBrowserId: remembered.id })
+          .where(and(eq(session.id, data.session.id), eq(session.userId, data.user.id)));
+        runtime.markRemembered(remembered.verificationMethod);
+        return;
+      }
       deleteSessionCookie(ctx, true);
       expireCookie(ctx, ctx.context.createAuthCookie("trust_device"));
       await ctx.context.internalAdapter.deleteSession(data.session.token);
@@ -121,7 +130,7 @@ export function createAuth(options: AuthOptions) {
       if (level === "error") console.error("Authentication request failed");
       else if (level === "warn") console.warn("Authentication warning");
     } },
-    session: { cookieCache: { enabled: false }, additionalFields: { mfaVerifiedAt: { type: "date", required: false, input: false, returned: false }, mfaVerificationMethod: { type: "string", required: false, input: false, returned: false } } },
+    session: { cookieCache: { enabled: false }, additionalFields: { mfaBrowserId: { type: "string", required: false, input: false, returned: false }, mfaVerifiedAt: { type: "date", required: false, input: false, returned: false }, mfaVerificationMethod: { type: "string", required: false, input: false, returned: false } } },
     advanced: {
       defaultCookieAttributes: {
         sameSite: options.production ? "none" : "lax",

@@ -5,6 +5,9 @@ import type { Context } from "../context";
 export const auditMiddleware = experimental_standaloneMiddleware<{ ctx: Context }>().create(async ({ ctx, path, type, next }) => {
   const context = { ...(ctx.audit ?? requestAuditContext()), requestId: requestAuditContext().requestId, procedure: path,
     actor: ctx.session?.user ? { kind: "user" as const, id: ctx.session.user.id, name: ctx.session.user.name, role: ctx.role } : { ...anonymousActor } };
+  // Authentication-state probes can finish after sign-out or session expiry.
+  // They still return 401, but do not represent access to protected records.
+  const expectedStatusPoll = (code: string) => type === "query" && path === "account.mfaStatus" && !ctx.session?.user && code === "UNAUTHORIZED";
   return withAuditContext(context, async () => {
     // These services already commit their own transactions before submitting email.
     const managed = path.startsWith("users.") || path === "tenants.createWithInvitation";
@@ -30,7 +33,7 @@ export const auditMiddleware = experimental_standaloneMiddleware<{ ctx: Context 
     };
     try {
       const result = await run();
-      if (!result.ok && (type === "mutation" || ["FORBIDDEN", "UNAUTHORIZED"].includes(result.error.code))) {
+      if (!result.ok && !expectedStatusPoll(result.error.code) && (type === "mutation" || ["FORBIDDEN", "UNAUTHORIZED"].includes(result.error.code))) {
         await auditFailure(transactionalDb, { action: "operation.failed", category: "security",
           outcome: ["FORBIDDEN", "UNAUTHORIZED"].includes(result.error.code) ? "denied" : "failed",
           targetType: "operation", targetLabel: path, details: { reasonCode: result.error.code } });
@@ -38,7 +41,7 @@ export const auditMiddleware = experimental_standaloneMiddleware<{ ctx: Context 
       return result;
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "INTERNAL_SERVER_ERROR";
-      await auditFailure(transactionalDb, { action: "operation.failed", category: "security", outcome: ["FORBIDDEN", "UNAUTHORIZED"].includes(code) ? "denied" : "failed",
+      if (!expectedStatusPoll(code)) await auditFailure(transactionalDb, { action: "operation.failed", category: "security", outcome: ["FORBIDDEN", "UNAUTHORIZED"].includes(code) ? "denied" : "failed",
         targetType: "operation", targetLabel: path, details: { reasonCode: code } });
       throw error;
     }

@@ -11,14 +11,15 @@ import * as authSchema from "@epl-fellows-platform/db/schema/auth";
 import { session, user, verification, passkey, mfaChallenge } from "@epl-fellows-platform/db/schema/auth";
 import { clearMfaChallenges, getMfaStatus, lockMfaAccount, type MfaDatabase } from "./mfa-store";
 
-type Scope = { database: MfaDatabase; userId?: string; sessionId?: string; challenge?: string; afterCommit?: Array<() => void> };
+import { revokeRememberedBrowsers } from "@epl-fellows-platform/db/mfa-browsers";
+type Scope = { rememberedMethod?: string; database: MfaDatabase; userId?: string; sessionId?: string; challenge?: string; afterCommit?: Array<() => void> };
 type CookieConfig = { session: string; challenge: string; passkey: string };
 type Outcome<T> = { value: T } | { error: unknown };
 class FailedResponse { constructor(readonly value: unknown, readonly code?: string) {} }
 const verificationPaths = new Set(["/two-factor/verify-totp", "/two-factor/verify-backup-code", "/two-factor/verify-otp", "/passkey/verify-authentication", "/passkey/verify-registration"]);
 const enrollmentPaths = new Set(["/two-factor/enable", "/two-factor/email-enroll", "/two-factor/passkey-prepare", "/two-factor/ack-backup-codes", "/passkey/generate-register-options", "/passkey/verify-registration"]);
 const managedPaths = new Set(["/two-factor/disable", "/two-factor/replace", "/two-factor/generate-backup-codes", "/two-factor/email-disable", "/passkey/delete-passkey"]);
-const restrictedAllowed = new Set(["/get-session", "/sign-out", "/two-factor/challenge-status", "/two-factor/get-totp-uri", "/two-factor/send-otp", "/passkey/generate-authenticate-options", ...enrollmentPaths, ...verificationPaths]);
+const restrictedAllowed = new Set(["/get-session", "/sign-out", "/two-factor/forget-browser", "/two-factor/challenge-status", "/two-factor/get-totp-uri", "/two-factor/send-otp", "/passkey/generate-authenticate-options", ...enrollmentPaths, ...verificationPaths]);
 
 export async function signedCookie(headers: Headers | undefined, name: string, secret: string) {
   const part = headers?.get("cookie")?.split(";").map((p) => p.trim()).find((p) => p.startsWith(name + "="));
@@ -93,7 +94,7 @@ export function createMfaRuntime(database: MfaDatabase, secret: string, rateLimi
     return {};
   }
   async function authorize(path: string, body: Record<string, unknown>, identity: { user: { id: string }; session: { id: string } } | null) {
-    if (body.trustDevice === true) throw new APIError("BAD_REQUEST", { code: "TRUSTED_DEVICES_DISABLED", message: "Verification is required at every sign-in." });
+    if (body.trustDevice === true) throw new APIError("BAD_REQUEST", { code: "TRUSTED_DEVICES_DISABLED", message: "This browser is remembered automatically after verification; custom trust requests are not supported." });
     if (body.disableSession === true) throw new APIError("BAD_REQUEST", { message: "Session-free verification is not supported." });
     if (path === "/two-factor/get-totp-uri") throw new APIError("BAD_REQUEST", { message: "Start authenticator setup to obtain a setup key." });
     if (path === "/two-factor/view-backup-codes") throw new APIError("NOT_FOUND", { message: "Backup codes are shown only when generated." });
@@ -101,9 +102,7 @@ export function createMfaRuntime(database: MfaDatabase, secret: string, rateLimi
     const status = await getMfaStatus(current(), identity.user.id, identity.session.id);
     if (!status) throw new APIError("UNAUTHORIZED", { message: "Sign in again." });
     if (status.reason && !restrictedAllowed.has(path)) throw new APIError("FORBIDDEN", { code: status.reason, message: status.reason === "MFA_ENROLLMENT_REQUIRED" ? "Set up an authenticator or passkey before continuing." : "Verify before continuing." });
-    // Password-authorized first strong enrollment is available to restricted administrators.
-    const firstStrongEnrollment = status.reason === "MFA_ENROLLMENT_REQUIRED" && enrollmentPaths.has(path);
-    if ((managedPaths.has(path) || (enrollmentPaths.has(path) && status.enabled && !firstStrongEnrollment)) && !status.fresh) {
+    if ((managedPaths.has(path) || (enrollmentPaths.has(path) && path !== "/two-factor/ack-backup-codes" && status.enabled)) && !status.fresh) {
       throw new APIError("FORBIDDEN", { code: "MFA_FRESH_VERIFICATION_REQUIRED", message: "Verify an eligible method before changing account security." });
     }
   }
@@ -136,7 +135,7 @@ export function createMfaRuntime(database: MfaDatabase, secret: string, rateLimi
       }
       const person = scope.userId ? (await tx.select().from(user).where(eq(user.id, scope.userId)))[0] : null;
       const [revokedDevice] = path === "/revoke-session" && scope.userId && typeof body.token === "string"
-        ? await tx.select({ id: session.id }).from(session).where(and(eq(session.token, body.token), eq(session.userId, scope.userId))) : [];
+        ? await tx.select({ id: session.id, browserId: session.mfaBrowserId }).from(session).where(and(eq(session.token, body.token), eq(session.userId, scope.userId))) : [];
       const previous = scope.userId && path === "/change-password" ? await tx.select().from(session).where(eq(session.userId, scope.userId)) : [];
       try {
         const value = await tx.transaction(async (savepoint) => {
@@ -164,8 +163,15 @@ export function createMfaRuntime(database: MfaDatabase, secret: string, rateLimi
               const proof = previous.find((row) => row.id === scope.sessionId);
               const devices = await savepoint.select().from(session).where(eq(session.userId, scope.userId));
               const device = devices.find((row) => !previous.some((old) => old.id === row.id)) ?? devices.find((row) => row.id === scope.sessionId);
-              if (device && proof) await savepoint.update(session).set({ mfaVerifiedAt: proof.mfaVerifiedAt, mfaVerificationMethod: proof.mfaVerificationMethod }).where(eq(session.id, device.id));
+              if (device && proof) await savepoint.update(session).set({ mfaVerifiedAt: proof.mfaVerifiedAt, mfaVerificationMethod: proof.mfaVerificationMethod, mfaBrowserId: null }).where(eq(session.id, device.id));
+              await revokeRememberedBrowsers(savepoint, scope.userId, { reason: "PASSWORD_CHANGED", keepSessionId: device?.id });
             }
+            if (path === "/reset-password" || path === "/revoke-sessions") await revokeRememberedBrowsers(savepoint, scope.userId, { reason: path === "/reset-password" ? "PASSWORD_RESET" : "SESSIONS_REVOKED" });
+            if (path === "/revoke-other-sessions") {
+              const [currentSession] = await savepoint.select().from(session).where(eq(session.id, scope.sessionId!));
+              await revokeRememberedBrowsers(savepoint, scope.userId, { exceptId: currentSession?.mfaBrowserId, keepSessionId: scope.sessionId, reason: "OTHER_SESSIONS_REVOKED" });
+            }
+            if (revokedDevice?.browserId) await revokeRememberedBrowsers(savepoint, scope.userId, { onlyId: revokedDevice.browserId, reason: "SESSION_REVOKED" });
             if (["/change-password", "/reset-password", "/sign-out", "/revoke-other-sessions", "/revoke-sessions"].includes(path)) await clearMfaChallenges(savepoint, scope.userId);
           }
           let restricted = false;
@@ -173,7 +179,7 @@ export function createMfaRuntime(database: MfaDatabase, secret: string, rateLimi
             const [device] = await savepoint.select({ id: session.id }).from(session).where(eq(session.userId, scope.userId)).orderBy(desc(session.createdAt)).limit(1);
             restricted = device ? Boolean((await getMfaStatus(savepoint, scope.userId, device.id))?.reason) : false;
           }
-          await auditAuthOutcome(savepoint, { path, userId: scope.userId, sessionId: scope.sessionId, beforeName: person?.name, name: body.name, response, restricted,
+          await auditAuthOutcome(savepoint, { path, userId: scope.userId, sessionId: scope.sessionId, beforeName: person?.name, name: body.name, response, restricted, rememberedMethod: scope.rememberedMethod,
             targetType: revokedDevice || path === "/sign-out" ? "session" : undefined,
             targetId: revokedDevice?.id ?? (path === "/sign-out" ? scope.sessionId : undefined) });
           return result;
@@ -199,6 +205,6 @@ export function createMfaRuntime(database: MfaDatabase, secret: string, rateLimi
     for (const callback of afterCommit) callback();
     return outcome.value;
   }
-  return { adapter, current, authorize, run, afterCommit: (callback: () => void) => { const scope = storage.getStore(); if (scope?.afterCommit) scope.afterCommit.push(callback); else callback(); }, scope: () => storage.getStore(), setCookies: (config: CookieConfig) => { cookies = config; } };
+  return { adapter, current, authorize, run, markRemembered: (method: string) => { const scope = storage.getStore(); if (scope) scope.rememberedMethod = method; }, afterCommit: (callback: () => void) => { const scope = storage.getStore(); if (scope?.afterCommit) scope.afterCommit.push(callback); else callback(); }, scope: () => storage.getStore(), setCookies: (config: CookieConfig) => { cookies = config; } };
 }
 export type MfaRuntime = ReturnType<typeof createMfaRuntime>;

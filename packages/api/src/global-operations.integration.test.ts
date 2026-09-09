@@ -41,7 +41,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("global Tenant Admin integration
   async function membership(id:string) { return (await database.select().from(userTenants).where(eq(userTenants.userId,id)))[0]!; }
   beforeAll(async () => {
     const url = new URL(process.env.TEST_DATABASE_URL!);
-    if(url.hostname!=="127.0.0.1"||url.port!=="55432"||url.pathname!=="/epl_settings_test"||process.env.DATABASE_URL!==url.toString()) throw Error("Isolated database required");
+    if(url.hostname!=="127.0.0.1"||!["55432", "15432"].includes(url.port)||url.pathname!=="/epl_settings_test"||process.env.DATABASE_URL!==url.toString()) throw Error("Isolated database required");
     await database.execute(sql.raw(auditSchemaSql));
     let global = await database.query.tenants.findFirst({where:eq(tenants.countryCode,"GLOBAL")});
     if(!global){ global=(await database.insert(tenants).values({name:"EPL Global Platform",slug:prefix+"global",countryCode:"GLOBAL"}).returning())[0]!; }

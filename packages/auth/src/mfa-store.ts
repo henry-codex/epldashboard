@@ -5,6 +5,8 @@ import { mfaStatus } from "./mfa-policy";
 import { writeAudit, withAuditContext, requestAuditContext } from "@epl-fellows-platform/db/audit";
 import type { AuditAction } from "@epl-fellows-platform/db/audit-policy";
 
+import { browserSessionState } from "./mfa-browser";
+import { revokeRememberedBrowsers } from "@epl-fellows-platform/db/mfa-browsers";
 export type MfaDatabase = TransactionalDatabase | AccessTransaction;
 export async function getMfaStatus(database: MfaDatabase, userId: string, sessionId: string) {
   const [person] = await database.select().from(user).where(eq(user.id, userId));
@@ -15,7 +17,7 @@ export async function getMfaStatus(database: MfaDatabase, userId: string, sessio
   return mfaStatus({ roles: memberships.map((row) => row.role), enabled: person.twoFactorEnabled,
     totpEnabled: person.totpEnabled, emailOtpEnabled: person.emailOtpEnabled, passkeyCount: keys.length,
     backupCodes: Boolean(person.mfaBackupCodes && person.mfaBackupCodesConfirmed),
-    verifiedAt: device.mfaVerifiedAt, verificationMethod: device.mfaVerificationMethod });
+    ...await browserSessionState(database, userId, device.mfaBrowserId), verifiedAt: device.mfaVerifiedAt, verificationMethod: device.mfaVerificationMethod });
 }
 export async function lockMfaAccount(database: MfaDatabase, userId: string) {
   await database.execute(sql`select pg_advisory_xact_lock(hashtextextended(${'epl-mfa:' + userId}, 0))`);
@@ -25,9 +27,10 @@ export async function clearMfaChallenges(database: MfaDatabase, userId: string) 
   await database.update(user).set({ mfaSecurityChangedAt: new Date() }).where(eq(user.id, userId));
   await database.delete(verification).where(and(eq(verification.value, userId), or(like(verification.identifier, "2fa-%"), like(verification.identifier, "trust-device-%"))));
 }
-export async function revokeMfaSessions(database: MfaDatabase, userId: string, keepId?: string) {
+export async function revokeMfaSessions(database: MfaDatabase, userId: string, keepId?: string, actorId?: string) {
   await database.delete(session).where(and(eq(session.userId, userId), keepId ? ne(session.id, keepId) : undefined));
   await clearMfaChallenges(database, userId);
+  await revokeRememberedBrowsers(database, userId, { keepSessionId: keepId, reason: "SECURITY_CHANGED", actorId });
 }
 export async function auditMfa(database: MfaDatabase, userId: string, eventType: string, metadata: Record<string, unknown> = {}) {
   const [global] = await database.select({ id: tenants.id }).from(tenants).where(eq(tenants.countryCode, "GLOBAL")).limit(1);

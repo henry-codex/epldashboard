@@ -1,3 +1,4 @@
+import { safeMfaReturnPath } from "@epl-fellows-platform/auth/mfa-policy";
 import type { AppRouter } from "@epl-fellows-platform/api/routers/index";
 
 import { env } from "@epl-fellows-platform/env/web";
@@ -12,7 +13,9 @@ export const queryClient = new QueryClient({
       const data = (error as { data?: { mfaReason?: string; code?: string } }).data;
       if (data?.code === "UNAUTHORIZED" && typeof window !== "undefined") { window.location.assign("/login"); return; }
       if (data?.mfaReason && typeof window !== "undefined") {
-        window.location.assign("/mfa/" + (data.mfaReason === "MFA_ENROLLMENT_REQUIRED" ? "setup" : "verify"));
+        const returnTo = safeMfaReturnPath(window.location.pathname + window.location.search);
+        void queryClient.cancelQueries(); queryClient.clear();
+        window.location.assign("/mfa/" + (data.mfaReason === "MFA_ENROLLMENT_REQUIRED" ? "setup" : "verify") + (returnTo ? "?returnTo=" + encodeURIComponent(returnTo) : ""));
         return;
       }
       toast.error(error.message, {

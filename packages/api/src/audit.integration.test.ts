@@ -27,7 +27,7 @@ describe.skipIf(!url)("audit PostgreSQL integration",()=>{
   const caller = (role:string,verified=true) => auditRouter.createCaller(callerContext(role,verified));
   beforeAll(async()=>{
     const target=new URL(url!);
-    if(!["localhost","127.0.0.1"].includes(target.hostname)||target.port!=="55432"||target.pathname!=="/epl_settings_test"||url!==process.env.DATABASE_URL)throw Error("Isolated audit database required");
+    if(!["localhost","127.0.0.1"].includes(target.hostname)||!["55432", "15432"].includes(target.port)||target.pathname!=="/epl_settings_test"||url!==process.env.DATABASE_URL)throw Error("Isolated audit database required");
     await database.execute(sql.raw(auditSchemaSql));
     await assertAuditSchema(database);
     await database.insert(tenants).values([{id:hubA,name:prefix+" A",slug:prefix+"-a"},{id:hubB,name:prefix+" B",slug:prefix+"-b"}]);

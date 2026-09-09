@@ -42,7 +42,7 @@ type EventInput = {
   before?: Record<string, unknown>; after?: Record<string, unknown>;
   details?: Record<string, unknown>; occurredAt?: Date; legacyId?: string;
 };
-const detailKeys = new Set(["method", "reasonCode", "operatorReason", "count", "created", "updated", "deleted", "cancelled", "failed", "skipped", "partnersCreated", "partnersUpdated", "cohortsCreated", "cohortsUpdated", "unavailableSources", "legacy", "cutoff", "issuerId"]);
+const detailKeys = new Set(["method", "remembered", "reasonCode", "operatorReason", "count", "created", "updated", "deleted", "cancelled", "failed", "skipped", "partnersCreated", "partnersUpdated", "cohortsCreated", "cohortsUpdated", "unavailableSources", "legacy", "cutoff", "issuerId"]);
 export async function writeAudit(database: AuditDatabase, event: EventInput) {
   const context = auditStorage.getStore() ?? requestAuditContext({ source: "system" });
   const actor = event.actor ?? (event.actorId ? await auditActor(database, event.actorId) : context.actor);

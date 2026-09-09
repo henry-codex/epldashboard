@@ -13,7 +13,7 @@ async function recover() {
   try {
     const { resetMfaForRecovery } = await import("../mfa-store");
     await resetMfaForRecovery(transactionalDb, input);
-    console.info("MFA recovery completed. Sessions were revoked. Required administrators must enroll again.");
+    console.info("MFA recovery completed. Sessions were revoked. The user can sign in with their password and optionally enable protection in Settings > Security.");
   } finally { await transactionalDb.$client.end({ timeout: 3 }); }
 }
 recover().catch(() => { console.error("MFA recovery failed. Verify command arguments, database setup and the exact user ID. No credentials are printed."); process.exitCode = 1; });

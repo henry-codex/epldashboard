@@ -6,6 +6,7 @@ export const AUDIT_TABLES = {
   check_ins: "check_in", network_field_defs: "field_definition",
 } as const;
 export const SECURITY_ACTIONS = [
+  "mfa.browser_remembered", "mfa.browser_revoked",
   "auth.sign_in", "auth.challenge_issued", "auth.sign_out", "auth.session_revoked", "auth.sessions_revoked",
   "auth.password_reset_requested", "auth.password_reset", "auth.password_changed", "auth.profile_updated",
   "auth.email_submitted", "auth.verification", "auth.account_locked", "auth.signup_denied",

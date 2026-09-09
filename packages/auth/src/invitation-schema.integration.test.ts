@@ -7,8 +7,8 @@ const connectionString = process.env.TEST_DATABASE_URL;
 describe.skipIf(!connectionString)("additive invitation setup", () => {
   beforeAll(() => {
     const url = new URL(connectionString!);
-    if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "55432" || url.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== connectionString) {
-      throw new Error("Schema verification requires the isolated epl_settings_test database on loopback port 55432");
+    if (!["localhost", "127.0.0.1"].includes(url.hostname) || !["55432", "15432"].includes(url.port) || url.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== connectionString) {
+      throw new Error("Schema verification requires the isolated epl_settings_test database on loopback port 55432 or 15432");
     }
   });
   afterAll(async () => { await database.$client.end({ timeout: 2 }); });

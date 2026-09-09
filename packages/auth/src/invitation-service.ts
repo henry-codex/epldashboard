@@ -285,7 +285,7 @@ export function createInvitationService(options: Options) {
         }
         if (nextRole === null) await tx.delete(userTenants).where(eq(userTenants.id, id));
         else await tx.update(userTenants).set({ role: nextRole, tenantId: nextTenantId, permissions: {} }).where(eq(userTenants.id, id));
-        await revokeMfaSessions(tx, target.userId);
+        await revokeMfaSessions(tx, target.userId, undefined, actorId);
         await audit(tx, hub?.countryCode === "GLOBAL" || nextRole === "tenant_admin" ? (nextRole === "tenant_admin" ? nextTenantId : target.tenantId) : target.tenantId, nextRole === null ? "membership.removed" : "membership.role_changed",
           { actorId, userId: target.userId, membershipId: id, previousRole: target.role, role: nextRole, previousTenantId: target.tenantId, nextTenantId: nextRole === null ? null : nextTenantId });
         return { success: true };

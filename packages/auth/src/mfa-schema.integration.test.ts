@@ -9,7 +9,7 @@ describe.skipIf(!url)("MFA method migration", () => {
   afterAll(async () => database.$client.end({ timeout: 3 }));
   it("backfills existing enrollment and unused codes once without resurrecting disabled methods or used codes", async () => {
     const parsed = new URL(url!);
-    if (!["localhost", "127.0.0.1"].includes(parsed.hostname) || parsed.port !== "55432" || parsed.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== url) throw new Error("Use the isolated MFA database.");
+    if (!["localhost", "127.0.0.1"].includes(parsed.hostname) || !["55432", "15432"].includes(parsed.port) || parsed.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== url) throw new Error("Use the isolated MFA database.");
     const ddl = await readFile(new URL("../../db/sql/add-mfa.sql", import.meta.url), "utf8");
     const id = randomUUID(), oldCodes = await symmetricEncrypt({ key: "isolated-migration-secret-32-characters", data: JSON.stringify(["unused-one", "unused-two"]) });
     const newCodes = await symmetricEncrypt({ key: "isolated-migration-secret-32-characters", data: JSON.stringify(["unused-two"]) });

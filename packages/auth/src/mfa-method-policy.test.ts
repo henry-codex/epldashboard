@@ -3,11 +3,11 @@ import { mfaStatus } from "./mfa-policy";
 import { otpHash } from "./mfa-methods";
 import { passkeyConfiguration } from "./mfa-passkey";
 describe("method-specific MFA policy", () => {
-  it.each(["super_admin", "tenant_admin", "country_admin"])("never grants %s access from email or email-only recovery codes", (role) => {
+  it.each(["super_admin", "tenant_admin", "country_admin"])("accepts chosen email protection and its recovery codes for %s", (role) => {
     for (const method of ["email", "backup"]) {
-      expect(mfaStatus({ roles: ["viewer", role], enabled: true, totpEnabled: false, emailOtpEnabled: true, verificationMethod: method, verifiedAt: new Date() })).toMatchObject({ required: true, verified: false, fresh: false, reason: "MFA_ENROLLMENT_REQUIRED", permittedMethods: [] });
+      expect(mfaStatus({ roles: ["viewer", role], enabled: true, totpEnabled: false, emailOtpEnabled: true, verificationMethod: method, verifiedAt: new Date() })).toMatchObject({ required: false, verified: true, fresh: true, reason: null, permittedMethods: ["email", "backup"] });
     }
-    expect(mfaStatus({ roles: [role], enabled: true, totpEnabled: false, emailOtpEnabled: true, passkeyCount: 1, verificationMethod: "email", verifiedAt: new Date() })).toMatchObject({ verified: false, fresh: false, reason: "MFA_VERIFICATION_REQUIRED" });
+    expect(mfaStatus({ roles: [role], enabled: true, totpEnabled: false, emailOtpEnabled: true, passkeyCount: 1, verificationMethod: "email", verifiedAt: new Date() })).toMatchObject({ verified: true, fresh: true, reason: null });
   });
   it.each(["alumni_exec", "fellow", "viewer", ""])("permits email for %s and strong methods for every role", (role) => {
     expect(mfaStatus({ roles: role ? [role] : [], enabled: true, totpEnabled: false, emailOtpEnabled: true, verificationMethod: "email", verifiedAt: new Date() })).toMatchObject({ verified: true, fresh: true, reason: null });

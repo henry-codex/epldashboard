@@ -4,8 +4,8 @@ import Link from "next/link";
 import { Download } from "lucide-react";
 import { downloadBackupCodes, loginPath, mfaError, verifyMfaCode } from "@/lib/mfa";
 const networkError = "Could not reach the server. Please try again.";
-export function MfaCodeForm({ onVerified, enrollment = false, saved = false, returnTo, initialBackup = false, allowSwitch = true }: {
-  onVerified: () => Promise<void>; enrollment?: boolean; saved?: boolean; returnTo?: string | null; initialBackup?: boolean; allowSwitch?: boolean;
+export function MfaCodeForm({ onVerified, enrollment = false, saved = false, returnTo, initialBackup = false, allowSwitch = true, onCancel, cancelLabel = "Cancel" }: {
+  onVerified: () => Promise<void>; enrollment?: boolean; saved?: boolean; returnTo?: string | null; initialBackup?: boolean; allowSwitch?: boolean; onCancel?: () => void; cancelLabel?: string;
 }) {
   const [code, setCode] = useState("");
   const [backup, setBackup] = useState(initialBackup);
@@ -36,6 +36,7 @@ export function MfaCodeForm({ onVerified, enrollment = false, saved = false, ret
     {expired && <Link href={loginPath(returnTo) as never}>Return to sign in</Link>}
     <button className="rm-primary" type="submit" disabled={busy || (enrollment && !saved)}>{busy ? "Verifying…" : enrollment ? "Enable MFA" : "Verify code"}</button>
     {!enrollment && allowSwitch && <button className="rm-ghost" type="button" disabled={busy} onClick={() => { setBackup(!backup); setCode(""); setError(null); }}>{backup ? "Use authenticator app" : "Use a backup code"}</button>}
+    {enrollment && onCancel && <button className="rm-ghost" type="button" disabled={busy} onClick={onCancel}>{cancelLabel}</button>}
   </form>;
 }
 

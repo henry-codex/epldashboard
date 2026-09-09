@@ -14,7 +14,7 @@ import { usersRouter } from "./users";
 function caller(role: UserRole, authenticated = true) {
   const now = new Date();
   const context: Context = {
-    mfa: { required: true, enabled: true, verified: true, fresh: true, reason: null, enrolledMethods: ["authenticator"], permittedMethods: ["authenticator", "backup"], verificationMethod: "authenticator" },
+    mfa: { required: false, enabled: true, verified: true, fresh: true, reason: null, enrolledMethods: ["authenticator"], permittedMethods: ["authenticator", "backup"], verificationMethod: "authenticator", verificationExpiresAt: new Date(now.getTime() + 7 * 86400000).toISOString(), browserRememberedUntil: null },
     role, tenantId: "00000000-0000-4000-8000-000000000001", userTenant: null,
     session: authenticated ? {
       user: { id: "actor", name: "Actor", email: "actor@example.test", emailVerified: true, twoFactorEnabled: true, createdAt: now, updatedAt: now },

@@ -53,7 +53,7 @@ describe.skipIf(!url)("email OTP and passkeys with isolated PostgreSQL", { timeo
   }
   beforeAll(async () => {
     const parsed = new URL(url!);
-    if (!["localhost", "127.0.0.1"].includes(parsed.hostname) || parsed.port !== "55432" || parsed.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== url) throw new Error("Use only the isolated MFA test database.");
+    if (!["localhost", "127.0.0.1"].includes(parsed.hostname) || !["55432", "15432"].includes(parsed.port) || parsed.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== url) throw new Error("Use only the isolated MFA test database.");
     const ddl = await readFile(new URL("../../db/sql/add-mfa.sql", import.meta.url), "utf8");
     await database.transaction(async (tx) => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql.raw(ddl)); await tx.execute(sql.raw(ddl)); });
     const [global] = await database.select().from(tenants).where(eq(tenants.countryCode, "GLOBAL")).limit(1); globalId = global?.id ?? randomUUID();
@@ -69,10 +69,13 @@ describe.skipIf(!url)("email OTP and passkeys with isolated PostgreSQL", { timeo
     await database.$client.end({ timeout: 3 });
   });
   it.each(["super_admin", "tenant_admin", "country_admin", "alumni_exec", "fellow", "viewer", undefined])("enforces email enrollment policy for %s", async (role) => {
-    const person = await account(role), required = ["super_admin", "tenant_admin", "country_admin"].includes(role ?? "");
+    const person = await account(role);
     const result = await request("/two-factor/email-enroll", { password }, person.browser);
-    expect(result.status).toBe(required ? 403 : 200);
+    expect(result.status).toBe(200);
     expect((await database.select().from(user).where(eq(user.id, person.id)))[0]!.emailOtpEnabled).toBe(false);
+    expect((await request("/two-factor/verify-otp", { purpose: "enrollment", code: messages.get(person.email), backupCodesSaved: true }, person.browser)).status).toBe(200);
+    expect((await request("/update-user", { name: "Email protected" }, person.browser)).status).toBe(200);
+    expect((await request("/sign-in/email", { email: person.email, password })).data.twoFactorRedirect).toBe(true);
   });
   it("enrolls with password, code and saved recovery codes, rotates sessions, and sends real Mailpit email", async () => {
     const person = await account();
@@ -129,15 +132,17 @@ describe.skipIf(!url)("email OTP and passkeys with isolated PostgreSQL", { timeo
     await database.insert(mfaEmailSend).values(Array.from({ length: 10 }, () => ({ id: randomUUID(), userId: person.id })));
     expect((await request("/two-factor/send-otp", { purpose: "enrollment" }, person.browser)).data.code).toBe("OTP_ACCOUNT_SEND_LIMIT");
   });
-  it("restricts a promoted email-only administrator and preserves recovery codes when adding a strong method", async () => {
+  it("retains email protection after promotion and preserves recovery codes when adding another method", async () => {
     const person = await account(); const codes = await emailEnrollment(person);
     await database.insert(userTenants).values({ userId: person.id, tenantId: globalId, role: "country_admin" });
-    expect((await request("/update-user", { name: "Forbidden" }, person.browser)).data.code).toBe("MFA_ENROLLMENT_REQUIRED");
-    expect((await request("/two-factor/generate-backup-codes", { password }, person.browser)).status).toBe(403);
+    expect((await request("/update-user", { name: "Promoted account" }, person.browser)).status).toBe(200);
     const promotedLogin = await request("/sign-in/email", { email: person.email, password });
-    expect(promotedLogin.data.twoFactorRedirect).not.toBe(true);
-    expect((await request("/update-user", { name: "Still forbidden" }, promotedLogin.browser)).status).toBe(403);
-    expect((await request("/two-factor/send-otp", {}, person.browser)).status).toBe(403);
+    expect(promotedLogin.data.twoFactorRedirect).toBe(true);
+    expect((await request("/update-user", { name: "Needs verification" }, promotedLogin.browser)).status).toBe(401);
+    await cooldown(person.id);
+    expect((await request("/two-factor/send-otp", {}, promotedLogin.browser)).data.sent).toBe(true);
+    expect((await request("/two-factor/verify-otp", { code: messages.get(person.email) }, promotedLogin.browser)).status).toBe(200);
+    expect((await request("/update-user", { name: "Verified promoted account" }, promotedLogin.browser)).status).toBe(200);
     const key = await keyEnrollment(person);
     expect(key.backupCodes).toEqual([]);
     const [stored] = await database.select().from(user).where(eq(user.id, person.id));
@@ -178,15 +183,17 @@ describe.skipIf(!url)("email OTP and passkeys with isolated PostgreSQL", { timeo
     const [stored] = await database.select().from(passkey).where(eq(passkey.credentialID, credential.id));
     expect(stored!.counter).toBeGreaterThan(0);
   });
-  it("supports names and multiple keys and transactionally prevents last strong factor removal", async () => {
+  it("supports names and concurrent passkey removal including the final method", async () => {
     const person = await account("country_admin"), first = await keyEnrollment(person);
-    expect((await request("/passkey/delete-passkey", { id: first.id, password }, person.browser)).data.code).toBe("MFA_REQUIRED_FOR_ROLE");
+    expect((await request("/passkey/delete-passkey", { id: first.id, password: "incorrect" }, person.browser)).status).toBe(400);
     const second = await keyEnrollment(person, "Second device");
     expect((await request("/passkey/update-passkey", { id: second.id, name: "  Work phone  " }, person.browser)).status).toBe(200);
     expect((await request("/passkey/list-user-passkeys", undefined, person.browser)).data).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Work phone" })]));
     const results = await Promise.all([request("/passkey/delete-passkey", { id: first.id, password }, new Map(person.browser)), request("/passkey/delete-passkey", { id: second.id, password }, new Map(person.browser))]);
-    expect(results.map((result) => result.status).sort()).toEqual([200, 403]);
-    expect(await database.select().from(passkey).where(eq(passkey.userId, person.id))).toHaveLength(1);
+    expect(results.map((result) => result.status).sort()).toEqual([200, 200]);
+    expect(await database.select().from(passkey).where(eq(passkey.userId, person.id))).toHaveLength(0);
+    expect((await database.select().from(user).where(eq(user.id, person.id)))[0]!.twoFactorEnabled).toBe(false);
+    expect((await request("/sign-in/email", { email: person.email, password })).data.twoFactorRedirect).not.toBe(true);
   });
   it("shares locks and rate limits across methods, enforces freshness, and forbids trusted devices", async () => {
     const person = await account(); await emailEnrollment(person);
@@ -232,13 +239,15 @@ describe.skipIf(!url)("email OTP and passkeys with isolated PostgreSQL", { timeo
     expect(await database.select().from(twoFactor).where(eq(twoFactor.userId, person.id))).toHaveLength(0);
     expect(await database.select().from(mfaChallenge).where(eq(mfaChallenge.userId, person.id))).toHaveLength(0);
     expect((await database.select().from(user).where(eq(user.id, person.id)))[0]).toMatchObject({ twoFactorEnabled: false, emailOtpEnabled: false, totpEnabled: false, mfaBackupCodes: null });
-  });
+  }, 180000); // Exercises all three factors and recovery with real password hashing.
   it("rolls back a credential, shared recovery state and session rotation when auditing fails", async () => {
     const person = await account();
     await request("/two-factor/passkey-prepare", { password }, person.browser); await request("/two-factor/ack-backup-codes", { saved: true }, person.browser);
     const options = await request("/passkey/generate-register-options", undefined, person.browser), key = virtualCredential();
     const response = key.register(options.data.challenge, options.data.user.id, origin), original = new Map(person.browser);
-    const audit = vi.spyOn(store, "auditMfa").mockRejectedValueOnce(new Error("Isolated audit failure"));
+    const originalAudit = store.auditMfa;
+    const audit = vi.spyOn(store, "auditMfa").mockImplementation((db, id, ...args) => id === person.id
+      ? Promise.reject(new Error("Isolated audit failure")) : originalAudit(db, id, ...args));
     try {
       expect((await request("/passkey/verify-registration", { response }, person.browser)).status).toBe(503);
       expect(person.browser).toEqual(original);

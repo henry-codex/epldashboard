@@ -9,6 +9,7 @@ import type { MfaRuntime } from "./mfa-runtime";
 import { mfaStatus, type MfaMethod } from "./mfa-policy";
 import { auditMfa, revokeMfaSessions } from "./mfa-store";
 
+import { browserSessionState, rememberBrowser } from "./mfa-browser";
 export type SecurityContext = Parameters<typeof getSessionFromCtx>[0];
 export function expiredChallenge(): never {
   throw new APIError("UNAUTHORIZED", { code: "INVALID_TWO_FACTOR_COOKIE", message: "This verification has expired. Sign in again." });
@@ -40,7 +41,7 @@ export async function accountStatus(runtime: MfaRuntime, userId: string, session
     roles: roles.map((row) => row.role), enabled: person.twoFactorEnabled, totpEnabled: person.totpEnabled,
     emailOtpEnabled: person.emailOtpEnabled, passkeyCount: keys.length,
     backupCodes: Boolean(person.mfaBackupCodes && person.mfaBackupCodesConfirmed),
-    verifiedAt: device?.mfaVerifiedAt, verificationMethod: device?.mfaVerificationMethod,
+    ...await browserSessionState(db, userId, device?.mfaBrowserId), verifiedAt: device?.mfaVerifiedAt, verificationMethod: device?.mfaVerificationMethod,
   }) };
 }
 export async function challengeIdentity(runtime: MfaRuntime, ctx: SecurityContext) {
@@ -103,6 +104,7 @@ export async function completeVerification(runtime: MfaRuntime, ctx: SecurityCon
     await revokeMfaSessions(db, userId, device.id);
     await auditMfa(db, userId, "mfa.enabled", { method });
   }
+  await rememberBrowser(db, ctx, userId, device.id, method);
   return { status: true };
 }
 export function base32(value: string) {

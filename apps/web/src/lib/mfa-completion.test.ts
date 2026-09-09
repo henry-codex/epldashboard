@@ -39,9 +39,9 @@ describe("verification completion", () => {
     await expect(finishMfaSignIn()).rejects.toThrow("expired");
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
-  it("keeps enrollment and verification restrictions before loading dashboard identity", async () => {
-    mocks.fetch.mockResolvedValueOnce({ reason: "MFA_ENROLLMENT_REQUIRED" });
-    await expect(finishMfaSignIn()).resolves.toBe("/mfa/setup");
+  it("keeps verification restrictions before loading dashboard identity", async () => {
+    mocks.fetch.mockResolvedValueOnce({ reason: "MFA_VERIFICATION_REQUIRED" });
+    await expect(finishMfaSignIn()).resolves.toBe("/mfa/verify");
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
   it("routes accounts without a membership to their shared settings", () => {

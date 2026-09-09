@@ -60,8 +60,8 @@ describe.skipIf(!connectionString)("invitation onboarding with PostgreSQL and Ma
 
   beforeAll(() => {
     const url = new URL(connectionString!);
-    if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "55432" || url.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== connectionString) {
-      throw new Error("Both DATABASE_URL and TEST_DATABASE_URL must target epl_settings_test on loopback port 55432");
+    if (!["localhost", "127.0.0.1"].includes(url.hostname) || !["55432", "15432"].includes(url.port) || url.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== connectionString) {
+      throw new Error("Both DATABASE_URL and TEST_DATABASE_URL must target epl_settings_test on loopback port 55432 or 15432");
     }
     service = createInvitationService({ database, frontendURL: origin, createUser, sendEmail: async (data) => {
       messages.set(data.to, data.url);

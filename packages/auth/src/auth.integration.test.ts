@@ -54,8 +54,8 @@ describe.skipIf(!connectionString)("account security with PostgreSQL and Mailpit
 
   beforeAll(async () => {
     const url = new URL(connectionString!);
-    if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "55432" || url.pathname !== "/epl_settings_test") {
-      throw new Error("Integration tests require the isolated loopback database epl_settings_test on port 55432");
+    if (!["localhost", "127.0.0.1"].includes(url.hostname) || !["55432", "15432"].includes(url.port) || url.pathname !== "/epl_settings_test") {
+      throw new Error("Integration tests require the isolated loopback database epl_settings_test on port 55432 or 15432");
     }
     pool = new Pool({ connectionString, max: 3 });
     auth = createAuth({

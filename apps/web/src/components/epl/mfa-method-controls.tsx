@@ -16,8 +16,8 @@ function useCountdown(initial = 0) {
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   return [Math.max(0, Math.ceil((until - now) / 1000)), (seconds: number) => { setNow(Date.now()); setUntil(Date.now() + seconds * 1000); }] as const;
 }
-export function EmailCodeForm({ onVerified, enrollment = false, saved = false, initial }: {
-  onVerified: () => Promise<void>; enrollment?: boolean; saved?: boolean; initial?: Partial<SendResult>;
+export function EmailCodeForm({ onVerified, enrollment = false, saved = false, initial, onCancel, cancelLabel = "Cancel" }: {
+  onVerified: () => Promise<void>; enrollment?: boolean; saved?: boolean; initial?: Partial<SendResult>; onCancel?: () => void; cancelLabel?: string;
 }) {
   const [code, setCode] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(initial?.sent ?? false), [destination, setDestination] = useState(initial?.destination ?? "your account email");
@@ -53,6 +53,7 @@ export function EmailCodeForm({ onVerified, enrollment = false, saved = false, i
       <button type="submit" className="rm-primary" disabled={busy || (enrollment && !saved)}>{busy ? "Verifying…" : enrollment ? "Enable email codes" : "Verify email code"}</button>
     </form>
     {error && <p className="rm-state-error" role="alert">{error}</p>}
+    {enrollment && onCancel && <button className="rm-ghost" type="button" disabled={busy} onClick={onCancel}>{cancelLabel}</button>}
   </div>;
 }
 export function MethodVerifier({ onVerified, returnTo }: { onVerified: () => Promise<void>; returnTo?: string | null }) {
@@ -71,14 +72,14 @@ export function MethodVerifier({ onVerified, returnTo }: { onVerified: () => Pro
   if (!data) return <p role="status">Loading verification methods…</p>;
   if (!data.available) return <p role="alert">This verification is missing or expired. Return to sign in.</p>;
   const methods = data.permittedMethods ?? ["authenticator", "backup"];
-  if (!methods.length) return <p role="alert">Enroll an authenticator or passkey to continue.</p>;
+  if (!methods.length) return <p role="alert">No verification method is available. Return to sign in.</p>;
   return <div className="mfa-form">
     <div className="mfa-method-tabs" aria-label="Verification method">{methods.map((value) => <button key={value} type="button" className="rm-ghost" aria-pressed={method === value} onClick={() => setMethod(value)}>{methodLabels[value]}</button>)}</div>
     {method === "passkey" ? <PasskeySignIn onVerified={onVerified} /> : method === "email" ? <EmailCodeForm key="email" initial={{ destination: data.destination ?? undefined, retryAfter: data.retryAfter }} onVerified={onVerified} />
       : <MfaCodeForm key={method} onVerified={onVerified} returnTo={returnTo} initialBackup={method === "backup"} allowSwitch={false} />}
   </div>;
 }
-export function MethodEnrollment({ method, onComplete, onCancel }: { method: "email" | "passkey"; onComplete: () => Promise<void>; onCancel: () => void }) {
+export function MethodEnrollment({ method, onComplete, onCancel, cancelLabel = "Cancel" }: { method: "email" | "passkey"; onComplete: () => Promise<void>; onCancel: () => void; cancelLabel?: string }) {
   const [password, setPassword] = useState(""), [name, setName] = useState("My passkey");
   const [setup, setSetup] = useState<SendResult | { backupCodes: string[] } | null>(null), [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [freshNeeded, setFreshNeeded] = useState(false);
@@ -114,13 +115,13 @@ export function MethodEnrollment({ method, onComplete, onCancel }: { method: "em
     </form> : <>
       {Boolean(setup.backupCodes?.length) && <section className="mfa-setup-step"><BackupCodes codes={setup.backupCodes!} /><label className="mfa-ack"><input type="checkbox" checked={saved} onChange={(event) => setSaved(event.target.checked)} /> <span>I have saved my backup codes.</span></label></section>}
       {!setup.backupCodes?.length && <p>Your existing unused backup codes still work.</p>}
-      {method === "email" ? <EmailCodeForm enrollment saved={saved} initial={setup as SendResult} onVerified={onComplete} /> : <form className="rm-panel-form" onSubmit={(event) => { event.preventDefault(); void addPasskey(); }}>
+      {method === "email" ? <EmailCodeForm enrollment saved={saved} initial={setup as SendResult} onVerified={onComplete} onCancel={onCancel} cancelLabel={cancelLabel} /> : <form className="rm-panel-form" onSubmit={(event) => { event.preventDefault(); void addPasskey(); }}>
         <label className="epl-slide-field"><span>Passkey name</span><input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="For example, work laptop" /></label>
         <button className="rm-primary" type="submit" disabled={busy || !saved}>{busy ? "Complete the device prompt…" : "Create passkey"}</button>
       </form>}
     </>}
     {error && <p className="rm-state-error" role="alert">{error}</p>}
-    <button type="button" className="rm-ghost" disabled={busy} onClick={onCancel}>Choose another method</button>
+    {(!setup || method === "passkey") && <button type="button" className="rm-ghost" disabled={busy} onClick={onCancel}>{cancelLabel}</button>}
   </div>;
 }
 type KeyInfo = { id: string; name: string | null; createdAt: string | null };
@@ -152,10 +153,11 @@ export function PasskeyManagement({ status, onChanged }: { status: MfaStatus; on
     <h3>Your passkeys</h3>
     {!keys ? <p role="status">Loading passkeys…</p> : !keys.length ? <p>No passkeys added yet.</p> : <ul className="mfa-passkey-list">{keys.map((key) => <li key={key.id}><div><strong>{key.name || "Passkey"}</strong><p>{key.createdAt ? "Added " + new Date(key.createdAt).toLocaleDateString() : "Added date unavailable"}</p></div><div className="account-actions">
       <button className="rm-ghost" type="button" disabled={busy} onClick={() => { setAction({ kind: "rename", key }); setName(key.name || "Passkey"); setError(null); }}>Rename</button>
-      <button className="rm-ghost nm-danger-action" type="button" disabled={busy || (status.required && !status.enrolledMethods.includes("authenticator") && keys.length === 1)} onClick={() => { setAction({ kind: "remove", key }); setFresh(status.fresh); setPassword(""); setError(null); }}>Remove passkey</button>
+      <button className="rm-ghost nm-danger-action" type="button" disabled={busy} onClick={() => { setAction({ kind: "remove", key }); setFresh(status.fresh); setPassword(""); setError(null); }}>Remove passkey</button>
     </div></li>)}</ul>}
     {action && <div className="mfa-setup-step"><h3>{action.kind === "remove" ? "Remove " : "Rename "}{action.key.name || "passkey"}</h3>
       {action.kind === "remove" && <p>This passkey will stop working. Other devices and pending sign-in requests will be signed out.</p>}
+      {action.kind === "remove" && keys?.length === 1 && status.enrolledMethods.length === 1 && <p>This is your last method. Removing it turns off MFA and returns your account to password-only sign-in.</p>}
       {action.kind === "remove" && !fresh ? <MethodVerifier onVerified={async () => setFresh(true)} /> : <form className="rm-panel-form" onSubmit={save}>
         {action.kind === "remove" ? <label className="epl-slide-field"><span>Current password</span><input type="password" required autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label> : <label className="epl-slide-field"><span>Passkey name</span><input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label>}
         <button className={action.kind === "remove" ? "rm-ghost nm-danger-action" : "rm-primary"} type="submit" disabled={busy}>{busy ? "Saving…" : action.kind === "remove" ? "Confirm removal" : "Save name"}</button>

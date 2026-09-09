@@ -20,7 +20,7 @@ The startup schema check gives the setup command if the table or triggers are mi
 
 Each entry has a server-generated ID and request correlation ID, UTC timestamp, action, category, outcome, actor kind and identity snapshot, target ID/type/label, hub snapshot, source, available client IP and browser metadata, and safe field changes. Times display in the browser's local timezone; the details panel also shows UTC.
 
-Actor kinds are user, anonymous, operator, and system. An unsuccessful authentication attempt does not attribute the action to the attempted account. Password acceptance with a pending MFA challenge or required enrollment is recorded as `auth.challenge_issued`, not completed sign-in. Authenticator, passkey, email, and backup-code verification record the method, never the proof itself.
+Actor kinds are user, anonymous, operator, and system. An unsuccessful authentication attempt does not attribute the action to the attempted account. Password acceptance with an enabled method awaiting verification is recorded as `auth.challenge_issued`. When no method is enabled, password-only sign-in is completed authentication and records `auth.sign_in`, for every role. Historical audit entries remain unchanged. Authenticator, passkey, email, and backup-code verification record the method, never the proof itself.
 
 IP addresses come from the server connection and Express's configured trusted proxy handling. Set `TRUSTED_PROXY_CIDRS` only for trusted proxies. Client-supplied internal headers cannot override the server context. Browser/device labels describe supplied metadata; they are not proof of device identity or location.
 
@@ -115,3 +115,11 @@ Tests cover permissions, direct queries, cross-hub attempts, multiple membership
 Local verification on 8 September 2026 passed 46 API tests, 70 frontend tests, six email tests, and the authentication/invitation/MFA/recovery regressions, including the focused audit checks. Workspace type checks and both application builds passed. Separate administrator browsers verified a real program update, cross-hub denial, safe details, empty results, keyboard focus, and desktop/laptop/mobile layouts (1920, 1366, and 390 pixels) in both themes. HTTP checks confirmed forged IP/request headers cannot override server attribution. Operator checks covered rejected bootstrap/import attempts and unavailable-source summaries.
 
 Page views, downloads, audit export, personal history, IP geolocation, external log shipping, and database-console changes are outside this release. SQL writes outside an application audit context are not attributed or captured. Production deployment and scheduler provisioning remain separate.
+
+## Remembered MFA browsers
+
+`mfa.browser_remembered` and `mfa.browser_revoked` record account-level browser verification and revocation, visible only to Super Admins. A password sign-in using a valid seven-day allowance records completed `auth.sign_in` with `remembered: true` and the original method; it does not record a new `auth.verification`. Tokens and hashes are excluded. Security resets and access/session revocation commit their browser revocations and audit events transactionally.
+
+## Authentication-state polling
+
+An unauthenticated `account.mfaStatus` query still returns 401, but is omitted from audit events because a background status check can finish after sign-out or session expiry. Other denied queries, every denied mutation, and signed-in status-check denials remain audited. Existing historical events are retained.

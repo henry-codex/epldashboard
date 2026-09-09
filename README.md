@@ -76,4 +76,4 @@ New accounts require an invitation. See [Invitation onboarding](docs/USER-ONBOAR
 
 See [Account settings](docs/ACCOUNT-SETTINGS.md) for local email setup, production SMTP configuration, and isolated security tests.
 
-See [Multi-factor authentication](docs/MFA.md) for the required administrator enrollment, additive MFA setup command, encryption-secret preservation, and private operator recovery procedure.
+See [Multi-factor authentication](docs/MFA.md) for the optional MFA enrollment for every role, additive MFA setup command, encryption-secret preservation, and private operator recovery procedure.

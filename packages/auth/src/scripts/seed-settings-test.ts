@@ -4,8 +4,8 @@ import { db, transactionalDb, tenants, userTenants, user } from "@epl-fellows-pl
 import { eq } from "drizzle-orm";
 
 const url = new URL(process.env.DATABASE_URL ?? "");
-if (!["localhost", "127.0.0.1"].includes(url.hostname) || url.port !== "55432" || url.pathname !== "/epl_settings_test") {
-  throw new Error("This fixture script only runs against epl_settings_test on loopback port 55432");
+if (!["localhost", "127.0.0.1"].includes(url.hostname) || !["55432", "15432"].includes(url.port) || url.pathname !== "/epl_settings_test") {
+  throw new Error("This fixture script only runs against epl_settings_test on loopback port 55432 or 15432");
 }
 const countryId = "00000000-0000-4000-8000-000000000101";
 const globalId = "00000000-0000-4000-8000-000000000102";

@@ -21,7 +21,7 @@ describe.skipIf(!connection)("authentication audit events",()=>{
   const events=(id:string)=>database.select().from(auditEvents).where(eq(auditEvents.targetId,id));
   beforeAll(async()=>{
     const url=new URL(connection!);
-    if(!["localhost","127.0.0.1"].includes(url.hostname)||url.port!=="55432"||url.pathname!=="/epl_settings_test"||connection!==process.env.DATABASE_URL)throw Error("Isolated database required");
+    if(!["localhost","127.0.0.1"].includes(url.hostname)||!["55432", "15432"].includes(url.port)||url.pathname!=="/epl_settings_test"||connection!==process.env.DATABASE_URL)throw Error("Isolated database required");
     await database.insert(tenants).values({id:hub,name:"Audit Auth Hub",slug:hub});
   });
   afterAll(async()=>{
@@ -49,11 +49,13 @@ describe.skipIf(!connection)("authentication audit events",()=>{
     expect(rows.map(e=>e.action)).toContain("auth.challenge_issued");
     expect(rows.map(e=>e.action)).not.toContain("auth.sign_in");
   });
-  it("records required administrator enrollment as restricted rather than completed sign-in",async()=>{
+  it("records completed password-only sign-in for an unenrolled administrator",async()=>{
     const person=await account();
     await database.insert(userTenants).values({userId:person.id,tenantId:hub,role:"country_admin"});
     expect((await request("/sign-in/email",{email:person.email,password})).status).toBe(200);
-    expect(await events(person.id)).toEqual(expect.arrayContaining([expect.objectContaining({action:"auth.challenge_issued",details:expect.objectContaining({reasonCode:"MFA_ENROLLMENT_REQUIRED"})})]));
+    const rows = await events(person.id);
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({action:"auth.sign_in",outcome:"success"})]));
+    expect(rows.map(event=>event.action)).not.toContain("auth.challenge_issued");
   });
   it("commits profile changes and snapshots together and rolls back on audit failure",async()=>{
     const person=await account(),login=await request("/sign-in/email",{email:person.email,password});

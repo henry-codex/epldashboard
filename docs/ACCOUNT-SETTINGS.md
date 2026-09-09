@@ -29,9 +29,9 @@ Better Auth's production rate limiter is enabled, with reset requests limited to
 
 ## Verification
 
-`pnpm test` runs focused unit/component tests. The auth integration suite additionally needs TEST_DATABASE_URL and the schema applied to a disposable PostgreSQL database. It refuses any URL except a loopback connection to port 55432 and database epl_settings_test.
+`pnpm test` runs focused unit/component tests. The auth integration suite additionally needs TEST_DATABASE_URL and the schema applied to a disposable PostgreSQL database. It refuses any URL except a loopback connection to port 55432 or 15432 and database epl_settings_test.
 
-Start isolated services. If these containers already exist, use `docker start epl-settings-test-db epl-settings-test-mail` instead of creating them again:
+Start isolated services. If these containers already exist, use `docker start epl-settings-test-db epl-settings-test-mail` instead of creating them again. If Windows reserves port 55432, use 15432 in the PostgreSQL port mapping and both database URLs; keep the loopback binding and disposable database name:
 
 ```powershell
 docker run --detach --name epl-settings-test-db --publish 127.0.0.1:55432:5432 --env POSTGRES_PASSWORD=epl_settings_test --env POSTGRES_DB=epl_settings_test postgres:16-alpine
@@ -54,4 +54,8 @@ For manual browser checks, seed the isolated database with `pnpm --filter server
 
 ## Multi-factor authentication
 
-Authenticator and passkey verification are available in Security; super, tenant and country administrators must enroll at least one. Other users may also opt into email OTP after their password. See [MFA setup and recovery](MFA.md). Password recovery preserves enrolled MFA.
+MFA is optional for every role, including Super Admin. Enable an authenticator, passkeys or email codes from Settings → Security. Existing methods stay enabled and still require verification at password sign-in. Removing the last method requires password confirmation and recent verification, then returns the account to password-only sign-in. See [MFA setup and recovery](MFA.md). Password recovery preserves enrolled MFA.
+
+## Weekly MFA verification
+
+MFA is optional for every role. Enrolled accounts automatically remember each verified browser for seven days, including after ordinary sign-out. New browsers still require verification; password sign-ins do not extend the seven-day window. Security-method changes and backup-code regeneration still require the password and verification within five minutes. Settings > Security shows the expiry and offers **Forget this browser and sign out**. Password recovery and access/security revocation invalidate remembered browsers without disabling enrolled factors. See [MFA setup and recovery](MFA.md) for the additive `db:setup-mfa` command and rollout details.

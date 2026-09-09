@@ -57,7 +57,7 @@ describe.skipIf(!url)("MFA with isolated PostgreSQL", { timeout: 90000 }, () => 
   }
   beforeAll(async () => {
     const parsed = new URL(url!);
-    if (!["localhost", "127.0.0.1"].includes(parsed.hostname) || parsed.port !== "55432" || parsed.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== url) throw new Error("MFA tests require the isolated loopback database on port 55432.");
+    if (!["localhost", "127.0.0.1"].includes(parsed.hostname) || !["55432", "15432"].includes(parsed.port) || parsed.pathname !== "/epl_settings_test" || process.env.DATABASE_URL !== url) throw new Error("MFA tests require the isolated loopback database on port 55432 or 15432.");
     const ddl = await readFile(new URL("../../db/sql/add-mfa.sql", import.meta.url), "utf8");
     await database.transaction(async (tx) => { await tx.execute(sql`set local client_min_messages = warning`); await tx.execute(sql.raw(ddl)); await tx.execute(sql.raw(ddl)); });
     await assertMfaSchema(database);
@@ -76,13 +76,12 @@ describe.skipIf(!url)("MFA with isolated PostgreSQL", { timeout: 90000 }, () => 
     await database.$client.end({ timeout: 3 });
   });
 
-  it.each(["super_admin", "tenant_admin", "country_admin", "alumni_exec", "fellow", "viewer", undefined])("enforces enrollment for %s", async (role) => {
+  it.each(["super_admin", "tenant_admin", "country_admin", "alumni_exec", "fellow", "viewer", undefined])("allows password-only access without enrollment for %s", async (role) => {
     const person = await account(role);
     const [device] = await database.select().from(session).where(eq(session.userId, person.id));
     const status = await getMfaStatus(database, person.id, device!.id);
-    const required = ["super_admin", "tenant_admin", "country_admin"].includes(role ?? "");
-    expect(status?.required).toBe(required);
-    expect((await request("/update-user", { name: "Updated MFA Test" }, person.browser)).status).toBe(required ? 403 : 200);
+    expect(status).toMatchObject({ required: false, enabled: false, reason: null });
+    expect((await request("/update-user", { name: "Updated MFA Test" }, person.browser)).status).toBe(200);
   });
   it("requires a saved-code acknowledgment, activates only after verification, rotates the current session and revokes others", async () => {
     const person = await account("country_admin");
@@ -91,6 +90,8 @@ describe.skipIf(!url)("MFA with isolated PostgreSQL", { timeout: 90000 }, () => 
     expect(setup.status).toBe(200);
     expect(setup.data.backupCodes).toHaveLength(10);
     expect((await database.select().from(user).where(eq(user.id, person.id)))[0]!.twoFactorEnabled).toBe(false);
+    expect((await request("/update-user", { name: "Setup is optional" }, person.browser)).status).toBe(200);
+    expect((await request("/sign-in/email", { email: person.email, password })).data.twoFactorRedirect).not.toBe(true);
     const otp = await code(person.id);
     expect((await request("/two-factor/verify-totp", { code: otp }, person.browser)).status).toBe(400);
     expect((await request("/two-factor/verify-totp", { code: otp, backupCodesSaved: true }, person.browser)).status).toBe(200);
@@ -130,13 +131,15 @@ describe.skipIf(!url)("MFA with isolated PostgreSQL", { timeout: 90000 }, () => 
     await database.update(user).set({ mfaLockedUntil: new Date(Date.now() - 1) }).where(eq(user.id, person.id));
     expect((await request("/two-factor/verify-backup-code", { code: codes[0] }, login.browser)).status).toBe(200);
   });
-  it("prevents administrators from disabling MFA and replaces the authenticator in restricted enrollment", async () => {
+  it("allows an optional authenticator replacement without forcing incomplete enrollment", async () => {
     const person = await account("tenant_admin"); await enroll(person);
-    expect((await request("/two-factor/disable", { password }, person.browser)).status).toBe(403);
+    expect((await request("/two-factor/replace", { password: "incorrect" }, person.browser)).status).toBe(400);
     const replaced = await request("/two-factor/replace", { password }, person.browser);
     expect(replaced.status).toBe(200);
-    expect((await request("/update-user", { name: "No bypass" }, person.browser)).status).toBe(403);
+    expect((await request("/update-user", { name: "Replacement pending" }, person.browser)).status).toBe(200);
+    expect((await request("/sign-in/email", { email: person.email, password })).data.twoFactorRedirect).not.toBe(true);
     expect((await request("/two-factor/verify-totp", { code: await code(person.id), backupCodesSaved: true }, person.browser)).status).toBe(200);
+    expect((await request("/sign-in/email", { email: person.email, password })).data.twoFactorRedirect).toBe(true);
   });
   it("rejects untrusted origins before consuming attempts and fixes the issuer", async () => {
     const person = await account();
@@ -169,8 +172,8 @@ describe.skipIf(!url)("MFA with isolated PostgreSQL", { timeout: 90000 }, () => 
     const denied = await request("/two-factor/verify-backup-code", { code: "invalid" }, pending.browser, limited, ip);
     expect(denied.status).toBe(429); expect(denied.data.code).toBe("MFA_RATE_LIMITED");
   });
-  it("regenerates codes with password and fresh MFA, then permits optional disabling", async () => {
-    const person = await account(); const old = await enroll(person);
+  it.each(["super_admin", "tenant_admin", "country_admin", undefined])("requires password and fresh proof before removing the last authenticator for %s", async (role) => {
+    const person = await account(role); const old = await enroll(person);
     expect((await request("/two-factor/generate-backup-codes", { password: "wrong-password" }, person.browser)).status).toBe(400);
     const generated = await request("/two-factor/generate-backup-codes", { password }, person.browser);
     expect(generated.status).toBe(200);
@@ -181,10 +184,17 @@ describe.skipIf(!url)("MFA with isolated PostgreSQL", { timeout: 90000 }, () => 
     await database.update(session).set({ mfaVerifiedAt: new Date(Date.now() - 301000) }).where(eq(session.userId, person.id));
     expect((await request("/two-factor/disable", { password }, login.browser)).status).toBe(403);
     expect((await request("/two-factor/verify-backup-code", { code: generated.data.backupCodes[1] }, login.browser)).status).toBe(200);
+    const pending = await request("/sign-in/email", { email: person.email, password });
     expect((await request("/two-factor/disable", { password: "incorrect" }, login.browser)).status).toBe(400);
     expect((await request("/two-factor/disable", { password }, login.browser)).status).toBe(200);
     expect((await database.select().from(user).where(eq(user.id, person.id)))[0]!.twoFactorEnabled).toBe(false);
     expect(await database.select().from(session).where(eq(session.userId, person.id))).toHaveLength(1);
+    expect((await request("/update-user", { name: "Revoked session" }, person.browser)).status).toBe(401);
+    expect((await request("/two-factor/challenge-status", undefined, pending.browser)).data.available).toBe(false);
+    expect((await request("/two-factor/verify-backup-code", { code: generated.data.backupCodes[2] }, login.browser)).status).toBe(403);
+    const passwordOnly = await request("/sign-in/email", { email: person.email, password });
+    expect(passwordOnly.data.twoFactorRedirect).not.toBe(true);
+    expect((await request("/update-user", { name: "MFA turned off" }, passwordOnly.browser)).status).toBe(200);
   });
   it("preserves MFA during password changes and recovery and invalidates pending challenges", async () => {
     const person = await account("country_admin"); await enroll(person);
@@ -216,13 +226,14 @@ describe.skipIf(!url)("MFA with isolated PostgreSQL", { timeout: 90000 }, () => 
     } finally { audit.mockRestore(); }
     expect((await request("/two-factor/verify-totp", { code: await code(person.id), backupCodesSaved: true }, person.browser)).status).toBe(200);
   });
-  it("operator recovery preserves the account, revokes sessions and requires admins to enroll again", async () => {
+  it("operator recovery preserves the account, revokes sessions and leaves re-enrollment optional", async () => {
     const person = await account("super_admin"); await enroll(person);
     await resetMfaForRecovery(database, { userId: person.id, operator: "Test operator", reason: "Verified identity in isolated test" });
     expect(await database.select().from(twoFactor).where(eq(twoFactor.userId, person.id))).toHaveLength(0);
     expect(await database.select().from(session).where(eq(session.userId, person.id))).toHaveLength(0);
     const login = await request("/sign-in/email", { email: person.email, password });
     expect(login.status).toBe(200);
-    expect((await request("/update-user", { name: "Restricted" }, login.browser)).status).toBe(403);
+    expect(login.data.twoFactorRedirect).not.toBe(true);
+    expect((await request("/update-user", { name: "Recovered account" }, login.browser)).status).toBe(200);
   });
 });

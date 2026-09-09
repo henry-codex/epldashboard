@@ -14,7 +14,7 @@ Tenant Admin is the platform operations role, assigned to the existing **EPL Glo
 | Audit history | All events | Country records/access and global operational records | Own country records/access |
 | Global access/security and system audit events | Yes | No | No |
 
-An active GLOBAL membership is required for Tenant Admin authority. An old country-scoped Tenant Admin row, an inactive GLOBAL workspace, or a Viewer membership in GLOBAL cannot grant platform privileges. All current memberships are considered. Required authenticator/passkey MFA remains unchanged.
+An active GLOBAL membership is required for Tenant Admin authority. An old country-scoped Tenant Admin row, an inactive GLOBAL workspace, or a Viewer membership in GLOBAL cannot grant platform privileges. All current memberships are considered. MFA enrollment is optional for every role. Tenant Admins may enable an authenticator, passkeys or email codes in Security; enabled protection still applies to every password sign-in.
 
 ## Invitations and role changes
 
@@ -53,3 +53,7 @@ Tests cover capabilities for all six roles, unassigned and multiple memberships,
 Local validation passed 257 tests across authentication, API, frontend, and email packages, workspace type checks, and both application builds. Isolated database tests covered migration rollback/repeatability and session revocation. Laptop browser checks confirmed the global dashboard, operational controls, hidden hub-administration navigation, direct-page denial, and invitation submission through Mailpit followed by acceptance and return to login. The final mobile, keyboard, and separate-browser revocation checks were not completed after the browser runner and isolated database connection timed out; complete these before production rollout.
 
 Production rollout and scheduling are separate operator steps.
+
+## Weekly MFA verification
+
+MFA is optional for every role. Enrolled accounts automatically remember each verified browser for seven days, including after ordinary sign-out. New browsers still require verification; password sign-ins do not extend the seven-day window. Security-method changes and backup-code regeneration still require the password and verification within five minutes. Settings > Security shows the expiry and offers **Forget this browser and sign out**. Password recovery and access/security revocation invalidate remembered browsers without disabling enrolled factors. See [MFA setup and recovery](MFA.md) for the additive `db:setup-mfa` command and rollout details.

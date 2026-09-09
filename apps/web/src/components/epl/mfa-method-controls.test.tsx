@@ -6,7 +6,7 @@ vi.mock("@/lib/mfa", () => ({ finishMfaSignIn: mocks.finish, mfaError: (error: {
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }) }));
 import { EmailCodeForm, MethodEnrollment, MethodVerifier, PasskeyManagement } from "./mfa-method-controls";
 import { PasskeySignIn } from "./passkey-sign-in";
-const status = { required: true, enabled: true, verified: true, fresh: true, enrolledMethods: ["passkey"] as ("passkey")[], permittedMethods: ["passkey"] as ("passkey")[], verificationMethod: "passkey" as const, reason: null };
+const status = { required: false, enabled: true, verified: true, fresh: true, enrolledMethods: ["passkey"] as ("passkey")[], permittedMethods: ["passkey"] as ("passkey")[], verificationExpiresAt: null, browserRememberedUntil: null, verificationMethod: "passkey" as const, reason: null };
 beforeEach(() => {
   vi.resetAllMocks();
   Object.defineProperty(window, "PublicKeyCredential", { configurable: true, value: function PublicKeyCredential() {} });
@@ -74,10 +74,14 @@ describe("email and passkey controls", () => {
     await waitFor(() => expect(mocks.done).toHaveBeenCalled());
     expect((screen.getByLabelText("Current password") as HTMLInputElement).value).toBe("");
   });
-  it("disables removal of the administrator's last passkey while keeping rename available", async () => {
+  it("allows last-passkey removal with an explanation and password confirmation", async () => {
     mocks.fetch.mockResolvedValue({ data: [{ id: "key", name: "Work laptop", createdAt: null }], error: null });
     render(<PasskeyManagement status={status} onChanged={mocks.done} />);
-    expect((await screen.findByRole("button", { name: "Remove passkey" })).hasAttribute("disabled")).toBe(true);
+    const remove = await screen.findByRole("button", { name: "Remove passkey" });
+    expect(remove.hasAttribute("disabled")).toBe(false);
     expect(screen.getByRole("button", { name: "Rename" }).hasAttribute("disabled")).toBe(false);
+    fireEvent.click(remove);
+    expect(screen.getByText(/returns your account to password-only sign-in/)).toBeTruthy();
+    expect(screen.getByLabelText("Current password")).toBeTruthy();
   });
 });

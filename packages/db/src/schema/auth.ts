@@ -37,11 +37,12 @@ export const session = pgTable(
     userAgent: text("user_agent"),
     mfaVerifiedAt: timestamp("mfa_verified_at"),
     mfaVerificationMethod: text("mfa_verification_method"),
+    mfaBrowserId: text("mfa_browser_id"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => [index("session_userId_idx").on(table.userId)],
+  (table) => [index("session_userId_idx").on(table.userId), index("session_mfa_browser_idx").on(table.mfaBrowserId)],
 );
 
 export const account = pgTable(
@@ -96,6 +97,16 @@ export const twoFactor = pgTable("two_factor", {
   backupCodes: text("backup_codes").notNull(),
   lastAcceptedTotpStep: bigint("last_accepted_totp_step", { mode: "number" }),
 });
+
+export const mfaBrowser = pgTable("mfa_browser", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  verifiedAt: timestamp("verified_at").notNull(),
+  verificationMethod: text("verification_method").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+}, (table) => [index("mfa_browser_user_idx").on(table.userId)]);
 
 export const passkey = pgTable("passkey", {
   id: text("id").primaryKey(),

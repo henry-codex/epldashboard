@@ -127,9 +127,8 @@ export function securePasskeyPlugin(runtime: MfaRuntime, config: ReturnType<type
     deletePasskey: createAuthEndpoint("/passkey/delete-passkey", { method: "POST", use: [sessionMiddleware], body: z.object({ id: z.string(), password: z.string().min(1).max(128) }) }, async (ctx) => {
       const id = ctx.context.session.user.id, db = runtime.current();
       await requirePassword(ctx, id);
-      const { person, keys, status } = await accountStatus(runtime, id, ctx.context.session.session.id);
+      const { keys } = await accountStatus(runtime, id, ctx.context.session.session.id);
       if (!keys.some((key) => key.id === ctx.body.id)) throw new APIError("NOT_FOUND", { code: "PASSKEY_NOT_FOUND", message: "This passkey is no longer available." });
-      if (status.required && !person.totpEnabled && keys.length <= 1) throw new APIError("FORBIDDEN", { code: "MFA_REQUIRED_FOR_ROLE", message: "Add another passkey or authenticator before removing your last strong method." });
       await db.delete(passkey).where(and(eq(passkey.id, ctx.body.id), eq(passkey.userId, id)));
       await syncEnabled(runtime, id);
       await revokeMfaSessions(db, id, ctx.context.session.session.id);
