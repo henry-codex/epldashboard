@@ -218,6 +218,41 @@ type ActionMenuItem = {
   danger?: boolean;
 };
 
+function telHref(phone: string) {
+  const cleaned = phone.replace(/[^\d+]/g, "");
+  return cleaned ? `tel:${cleaned}` : null;
+}
+
+function EmailLink({ email }: { email: string | null | undefined }) {
+  if (!email?.trim()) return <span>—</span>;
+  return (
+    <a
+      href={`mailto:${email.trim()}`}
+      className="nm-contact-link"
+      title={`Email ${email}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {email}
+    </a>
+  );
+}
+
+function PhoneLink({ phone }: { phone: string | null | undefined }) {
+  if (!phone?.trim()) return <span>—</span>;
+  const href = telHref(phone);
+  if (!href) return <span>{phone}</span>;
+  return (
+    <a
+      href={href}
+      className="nm-contact-link"
+      title={`Call ${phone}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {phone}
+    </a>
+  );
+}
+
 function FellowActionsMenu({
   open,
   onOpenChange,
@@ -1150,8 +1185,8 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                     {rangeStart + index}
                   </td>
                   <td style={{ padding: "10px 12px", fontWeight: 600 }}>{row.firstName} {row.lastName}</td>
-                  <td style={{ padding: "10px 12px" }}>{row.email ?? "—"}</td>
-                  <td style={{ padding: "10px 12px", color: "var(--emuted)" }}>{row.phone ?? "—"}</td>
+                  <td style={{ padding: "10px 12px" }}><EmailLink email={row.email} /></td>
+                  <td style={{ padding: "10px 12px", color: "var(--emuted)" }}><PhoneLink phone={row.phone} /></td>
                   <td style={{ padding: "10px 12px" }}>
                     <span className={statusPillClass(row.status)}>{row.status}</span>
                   </td>
@@ -1318,11 +1353,11 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                 </div>
                 <div>
                   <span className="nm-view-label">Email</span>
-                  <p className="nm-view-value">{viewingFellow.email ?? "—"}</p>
+                  <p className="nm-view-value"><EmailLink email={viewingFellow.email} /></p>
                 </div>
                 <div>
                   <span className="nm-view-label">Phone</span>
-                  <p className="nm-view-value">{viewingFellow.phone ?? "—"}</p>
+                  <p className="nm-view-value"><PhoneLink phone={viewingFellow.phone} /></p>
                 </div>
                 <div>
                   <span className="nm-view-label">Gender</span>
