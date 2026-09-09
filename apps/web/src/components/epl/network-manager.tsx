@@ -52,6 +52,13 @@ const STATUSES = [
   { value: "inactive", label: "Inactive" },
 ] as const;
 
+const FELLOW_STATUS_OPTIONS = [
+  { value: "incoming", label: "Incoming — recruited, not yet active" },
+  { value: "active", label: "Active — currently in fellowship" },
+  { value: "alumni", label: "Alumni — completed fellowship" },
+  { value: "inactive", label: "Inactive — left / not counted live" },
+] as const;
+
 const FIELD_TYPES = [
   { value: "text", label: "Text" },
   { value: "number", label: "Number" },
@@ -83,6 +90,7 @@ type FellowRow = {
   program: string;
   status: "incoming" | "active" | "alumni" | "inactive";
   isMcf: boolean;
+  linkedinUrl?: string | null;
   customFields: Record<string, unknown>;
   externalId: string | null;
   serviceOrganization?: string | null;
@@ -125,6 +133,7 @@ type FellowForm = {
   isMcfScholar: boolean;
   qualification: string;
   university: string;
+  linkedinUrl: string;
   cohortYear: string;
   program: string;
   status: "incoming" | "active" | "alumni" | "inactive";
@@ -160,6 +169,7 @@ const EMPTY_FELLOW: FellowForm = {
   isMcfScholar: false,
   qualification: "",
   university: "",
+  linkedinUrl: "",
   cohortYear: "",
   program: "",
   status: "active",
@@ -656,6 +666,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       isMcfScholar: row.customFields.is_mcf_scholar === true || row.customFields.is_mcf_scholar === "true",
       qualification: row.customFields.qualification != null ? String(row.customFields.qualification) : "",
       university: row.customFields.university != null ? String(row.customFields.university) : "",
+      linkedinUrl: row.linkedinUrl ?? "",
       cohortYear: row.cohortYear != null ? String(row.cohortYear) : "",
       program: row.program,
       status: row.status,
@@ -706,8 +717,12 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
   async function handleFellowSubmit(e: React.FormEvent) {
     e.preventDefault();
     const cohortYear = Number.parseInt(fellowForm.cohortYear, 10);
-    if (!fellowForm.firstName.trim() || !fellowForm.lastName.trim() || !fellowForm.email.trim()) {
-      toast.error("First name, last name, and email are required");
+    if (!fellowForm.firstName.trim() || !fellowForm.lastName.trim()) {
+      toast.error("First name and last name are required");
+      return;
+    }
+    if (fellowForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fellowForm.email.trim())) {
+      toast.error("Enter a valid email, or leave it blank");
       return;
     }
     if (Number.isNaN(cohortYear)) {
@@ -741,6 +756,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       isMcfScholar: fellowForm.isMcfScholar,
       qualification: fellowForm.qualification.trim() || undefined,
       university: fellowForm.university.trim() || undefined,
+      linkedinUrl: fellowForm.linkedinUrl.trim() || null,
       serviceOrganization: fellowForm.serviceOrganization.trim() || null,
       serviceRole: fellowForm.serviceRole.trim() || null,
       serviceCity: fellowForm.serviceCity.trim() || null,
@@ -748,6 +764,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       servicePartnerId: fellowForm.servicePartnerId.trim() || null,
       cohortYear,
       program: fellowForm.program,
+      status: fellowForm.status,
       isMcf: fellowForm.isMcf,
       externalId: fellowForm.externalId.trim() || undefined,
       customFields: fellowForm.customFields,
@@ -758,7 +775,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       if (editingId) {
         await updateMutation.mutateAsync({ ...payload, id: editingId });
       } else {
-        const created = await createMutation.mutateAsync({ ...payload, status: "active" });
+        const created = await createMutation.mutateAsync(payload);
         fellowId = created.id;
       }
 
@@ -818,45 +835,61 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
   }
 
   function downloadTemplate() {
+    const sampleProgram = programsQuery.data?.items[0]?.title ?? "Public Service Fellowship";
+    const year = String(new Date().getFullYear());
     const headers = [
-      "firstName",
-      "lastName",
-      "email",
+      "fullName",
       "status",
-      "cohortYear",
       "program",
-      "phone",
-      "nationality",
+      "cohortYear",
+      "cohortLabel",
       "gender",
-      "hasDisability",
+      "retentionInstitution",
+      "roleTitle",
+      "city",
+      "region",
       "isMcf",
+      "isMcfScholar",
+      "hasDisability",
+      "isIdp",
+      "email",
+      "phone",
+      "linkedinUrl",
+      "qualification",
+      "university",
       "externalId",
-      ...fieldDefs.map((f) => f.key),
     ];
-    const sampleProgram = programsQuery.data?.items[0]?.title ?? "Hub program name";
     const sample = [
-      "Ama",
-      "Kone",
-      "ama.kone@example.org",
+      "Ama Kone",
       "active",
-      String(new Date().getFullYear()),
       sampleProgram,
-      "",
-      "CIV",
+      year,
+      `Cohort ${year.slice(2)}`,
       "Female",
-      "false",
-      "false",
-      "EXT-001",
-      ...fieldDefs.map(() => ""),
+      "Ministry of Finance",
+      "Budget Analyst",
+      "Abidjan",
+      "Lagunes",
+      "Yes",
+      "No",
+      "No",
+      "No",
+      "ama.kone@example.org",
+      "+2250700000000",
+      "",
+      "",
+      "",
+      "",
     ];
-    const csv = `${headers.join(",")}\n${sample.join(",")}`;
+    const csv = `${headers.join(",")}\n${sample.map((cell) => (cell.includes(",") ? `"${cell}"` : cell)).join(",")}\n`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `network-template-${tenantId.slice(0, 8)}.csv`;
+    link.download = `EPL-Country-Network-Template.csv`;
     link.click();
     URL.revokeObjectURL(url);
+    toast.success("Network template downloaded — fill and Import CSV");
   }
 
   function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -933,7 +966,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
               Export CSV
             </button>
             <button type="button" className="rm-ghost" onClick={downloadTemplate}>
-              <IconFileSpreadsheet size={16} /> Template
+              <IconFileSpreadsheet size={16} /> Download template
             </button>
             <button type="button" className="rm-ghost" onClick={() => setFieldsPanel(true)}>
               <IconColumns size={16} /> Fields
@@ -1051,7 +1084,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
           title={statusFilter === "" || statusFilter === "current" ? "No fellows yet" : "No fellows match this filter"}
           description={
             statusFilter === "" || statusFilter === "current"
-              ? `Add fellows manually or import a CSV to start building ${hubName}'s network.`
+              ? `Add fellows manually, or download the Network template and Import CSV.`
               : "Try a different status filter or search term."
           }
           accent={accent}
@@ -1416,11 +1449,30 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
             </div>
             <div className="epl-slide-field">
               <span>Email</span>
-              <input type="email" value={fellowForm.email} onChange={(e) => setFellowForm((p) => ({ ...p, email: e.target.value }))} required />
+              <input
+                type="email"
+                value={fellowForm.email}
+                onChange={(e) => setFellowForm((p) => ({ ...p, email: e.target.value }))}
+                placeholder="Optional"
+              />
             </div>
-            <div className="epl-slide-field">
-              <span>Phone</span>
-              <input value={fellowForm.phone} onChange={(e) => setFellowForm((p) => ({ ...p, phone: e.target.value }))} placeholder="Optional" />
+            <div className="rm-panel-row">
+              <div className="epl-slide-field">
+                <span>Phone</span>
+                <input
+                  value={fellowForm.phone}
+                  onChange={(e) => setFellowForm((p) => ({ ...p, phone: e.target.value }))}
+                  placeholder="Optional — one primary number"
+                />
+              </div>
+              <div className="epl-slide-field">
+                <span>LinkedIn URL</span>
+                <input
+                  value={fellowForm.linkedinUrl}
+                  onChange={(e) => setFellowForm((p) => ({ ...p, linkedinUrl: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </div>
             </div>
           </section>
 
@@ -1428,17 +1480,34 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
             <div className="rm-panel-section-head">
               <IconBriefcase size={16} /> Program & cohort
             </div>
+            <div className="epl-slide-field">
+              <span>Status</span>
+              <SlideSelect
+                value={fellowForm.status}
+                onChange={(value) =>
+                  setFellowForm((p) => ({
+                    ...p,
+                    status: value as FellowForm["status"],
+                  }))
+                }
+                options={FELLOW_STATUS_OPTIONS.map((status) => ({
+                  value: status.value,
+                  label: status.label,
+                }))}
+                placeholder="Select status"
+              />
+              <p className="rm-panel-hint">
+                incoming = recruited not started · active = in fellowship · alumni = graduated ·
+                inactive = left / not counted live
+              </p>
+            </div>
             {editingId && (
-              <div className="epl-slide-field">
-                <span>Current status</span>
-                <span className={statusPillClass(fellowForm.status)} style={{ alignSelf: "flex-start" }}>
-                  {fellowForm.status}
-                </span>
-                <p className="rm-panel-hint">Use roster actions to move fellows to alumni or inactive.</p>
-              </div>
+              <p className="rm-panel-hint" style={{ marginTop: 0 }}>
+                You can also change status from roster row actions.
+              </p>
             )}
             <div className="epl-slide-field">
-              <span>Cohort</span>
+              <span>Cohort year</span>
               <SlideSelect
                 value={fellowForm.cohortYear}
                 onChange={(value) => setFellowForm((p) => ({ ...p, cohortYear: value }))}
@@ -1451,7 +1520,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
               />
             </div>
             <div className="epl-slide-field">
-              <span>Program track</span>
+              <span>Program</span>
               <ProgramSelect
                 tenantId={tenantId}
                 value={fellowForm.program}
@@ -1467,13 +1536,13 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
 
           <section className="rm-panel-section">
             <div className="rm-panel-section-head">
-              <IconMapPin size={16} /> Where they serve
+              <IconMapPin size={16} /> Retention / placement
             </div>
             <p className="rm-panel-hint" style={{ marginTop: 0 }}>
-              Current fellowship service location — not the same as the retention record below.
+              Retention institution and role — matches the Network template columns.
             </p>
             <div className="epl-slide-field">
-              <span>Organization / host</span>
+              <span>Retention institution</span>
               <SlideSelect
                 value={fellowForm.servicePartnerId}
                 onChange={(partnerId) => {
@@ -1497,7 +1566,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                 placeholder={
                   partnerOptions.length === 0
                     ? "Add a placement institution first"
-                    : "Select placement institution"
+                    : "Select retention institution"
                 }
                 allowEmpty
                 emptyLabel="Not assigned"
@@ -1650,8 +1719,8 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
             <SlideToggle
               checked={fellowForm.isMcfScholar}
               onChange={(isMcfScholar) => setFellowForm((p) => ({ ...p, isMcfScholar }))}
-              label="Mastercard Foundation Scholar"
-              description="Distinct from general MCF program membership below"
+              label="Mastercard Foundation Scholar (isMcfScholar)"
+              description="Individual scholar flag — can differ from cohort MCF funding above"
             />
             <div className="rm-panel-row">
               <div className="epl-slide-field">
@@ -1685,8 +1754,8 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
             <SlideToggle
               checked={fellowForm.isMcf}
               onChange={(isMcf) => setFellowForm((p) => ({ ...p, isMcf }))}
-              label="MCF program member"
-              description="Marks this fellow as part of the MCF track"
+              label="MCF-funded cohort (isMcf)"
+              description="Yes if this person's cohort is Mastercard Foundation funded"
             />
           </section>
 
