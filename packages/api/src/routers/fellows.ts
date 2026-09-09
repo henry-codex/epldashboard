@@ -28,6 +28,7 @@ import { countBreakdown, formatStatusLabel, normalizeGender, parseDisabilityValu
 import { assertTenantPartner, syncPartnerFellowCounts, normalizeName, canonicalizeInstitutionNames } from "../lib/partner-stats.js";
 import { parseCohortNumber } from "../lib/cohort-stats.js";
 import { FELLOW_STATUSES, type FellowStatus } from "../lib/fellow-status.js";
+import { normalizePhoneWithCountryCode, resolveCallingCode } from "../lib/phone.js";
 
 const fellowStatusSchema = z.enum(FELLOW_STATUSES);
 const fieldTypeSchema = z.enum(["text", "number", "date", "select", "boolean"]);
@@ -204,6 +205,25 @@ function mapFieldDef(row: typeof networkFieldDefs.$inferSelect) {
     required: row.required ?? false,
     sortOrder: row.sortOrder ?? 0,
   };
+}
+
+function callingCodeForTenant(tenant: {
+  countryCode: string | null;
+  settings: unknown;
+} | null | undefined) {
+  if (!tenant) return null;
+  const settings = (tenant.settings ?? {}) as { iso2?: string };
+  return resolveCallingCode({
+    countryCode: tenant.countryCode,
+    iso2: settings.iso2,
+  });
+}
+
+function normalizeHubPhone(
+  phone: string | null | undefined,
+  tenant: { countryCode: string | null; settings: unknown } | null | undefined,
+) {
+  return normalizePhoneWithCountryCode(phone, callingCodeForTenant(tenant));
 }
 
 function parseBool(value: string | undefined) {
@@ -500,6 +520,8 @@ export const fellowsRouter = router({
 
       await assertTenantProgram(tenantId, input.program);
 
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+
       let serviceInput: ServiceLocationInput = input;
       if (input.servicePartnerId) {
         const partner = await assertTenantPartner(tenantId, input.servicePartnerId);
@@ -533,7 +555,7 @@ export const fellowsRouter = router({
             firstName: input.firstName.trim(),
             lastName: input.lastName.trim(),
             email: input.email?.trim() ? input.email.trim().toLowerCase() : null,
-            phone: input.phone?.trim() || null,
+            phone: normalizeHubPhone(input.phone, tenant),
             nationality: input.nationality?.trim() || null,
             gender: input.gender?.trim() || null,
             cohortYear: input.cohortYear,
@@ -604,7 +626,10 @@ export const fellowsRouter = router({
       if (input.email !== undefined) {
         patch.email = input.email.trim() ? input.email.trim().toLowerCase() : null;
       }
-      if (input.phone !== undefined) patch.phone = input.phone?.trim() || null;
+      if (input.phone !== undefined) {
+        const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+        patch.phone = normalizeHubPhone(input.phone, tenant);
+      }
       if (input.nationality !== undefined) patch.nationality = input.nationality?.trim() || null;
       if (input.gender !== undefined) patch.gender = input.gender?.trim() || null;
       if (input.cohortYear !== undefined) patch.cohortYear = input.cohortYear;
@@ -1064,6 +1089,7 @@ export const fellowsRouter = router({
         ...new Set(prepared.map((p) => p.rawInstitution).filter((v): v is string => !!v)),
       ]);
       const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+      const hubCallingCode = callingCodeForTenant(tenant);
       const activePartnerCounts = new Map<string, { name: string; count: number }>();
 
       // Cohorts are a first-class thing in the source data (Cohort 1 = 2025,
@@ -1101,7 +1127,7 @@ export const fellowsRouter = router({
             firstName: row.firstName,
             lastName: row.lastName,
             email: row.email,
-            phone: row.phone,
+            phone: normalizePhoneWithCountryCode(row.phone, hubCallingCode),
             nationality: row.nationality,
             gender: row.gender,
             linkedinUrl: row.linkedinUrl,

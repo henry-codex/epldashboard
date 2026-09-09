@@ -875,7 +875,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
       "No",
       "No",
       "ama.kone@example.org",
-      "+2250700000000",
+      "0248373240",
       "",
       "",
       "",
@@ -1462,8 +1462,11 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
                 <input
                   value={fellowForm.phone}
                   onChange={(e) => setFellowForm((p) => ({ ...p, phone: e.target.value }))}
-                  placeholder="Optional — one primary number"
+                  placeholder="Local or +233… — country code auto-added"
                 />
+                <p className="rm-panel-hint">
+                  Local numbers get this hub&apos;s country code on save (e.g. Ghana → +233).
+                </p>
               </div>
               <div className="epl-slide-field">
                 <span>LinkedIn URL</span>
