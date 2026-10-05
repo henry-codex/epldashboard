@@ -16,7 +16,7 @@ export default function EventsPage() {
   const home = useHomePath();
   const eventsQuery = useQuery({
     ...trpc.platform.eventPortfolio.queryOptions(),
-    enabled: Boolean(session?.user) && !home.isLoading && home.role === "super_admin",
+    enabled: Boolean(session?.user) && !home.isLoading && home.capabilities.platformView,
   });
 
   useEffect(() => {

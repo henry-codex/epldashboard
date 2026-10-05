@@ -139,7 +139,7 @@ export default function ExecutivesPage() {
   const [viewMode, setViewMode] = useState<"grid" | "tree">("tree");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const home = useHomePath();
-  const canManage = home.role === "super_admin";
+  const canManage = home.capabilities.globalOperations;
 
   const listQuery = useQuery(trpc.alumniExecutives.list.queryOptions());
   const executives = useMemo(

@@ -1,105 +1,70 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { IconKey, IconLoader2, IconCheck } from "@tabler/icons-react";
+import { passwordConfirmationError } from "@epl-fellows-platform/auth/account-policy";
 import { authClient } from "@/lib/auth-client";
+import { authErrorMessage } from "@/lib/account-settings";
 
-export function ChangePasswordForm() {
+export function ChangePasswordForm({ onChanged }: { onChanged?: () => Promise<void> }) {
+  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (newPassword.length < 8) {
-      toast.error("New password must be at least 8 characters");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("New passwords do not match");
-      return;
-    }
-
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (pending) return;
+    const validation = passwordConfirmationError(newPassword, confirmation);
+    if (validation) { setError(validation); return; }
     setPending(true);
+    setError(null);
     try {
-      const result = await authClient.changePassword({
-        currentPassword,
-        newPassword,
-        revokeOtherSessions: false,
-      });
+      const result = await authClient.changePassword({ currentPassword, newPassword, revokeOtherSessions: true });
       if (result.error) {
-        toast.error(result.error.message ?? "Could not change password");
+        setError(authErrorMessage(result.error, "Could not change password"));
+        if (result.error.status === 401) router.replace("/login");
         return;
       }
-      toast.success("Password updated");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not change password");
-    } finally {
-      setPending(false);
-    }
+      setCurrentPassword(""); setNewPassword(""); setConfirmation("");
+      await authClient.getSession({ query: { disableCookieCache: true } });
+      await onChanged?.();
+      toast.success("Password updated. Other devices have been signed out.");
+    } catch { setError("Could not reach the server. Please try again."); }
+    finally { setPending(false); }
   }
 
   return (
     <form onSubmit={handleSubmit} className="rm-panel-form">
-      <div className="epl-slide-field">
-        <span>Current password</span>
-        <input
-          type="password"
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-          autoComplete="current-password"
-          required
-        />
-      </div>
+      <label className="epl-slide-field"><span>Current password</span>
+        <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required disabled={pending} />
+      </label>
       <div className="rm-panel-row">
-        <div className="epl-slide-field">
-          <span>New password</span>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Min. 8 characters"
-            minLength={8}
-            autoComplete="new-password"
-            required
-          />
-        </div>
-        <div className="epl-slide-field">
-          <span>Confirm new password</span>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            minLength={8}
-            autoComplete="new-password"
-            required
-          />
-        </div>
+        <label className="epl-slide-field"><span>New password</span>
+          <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required disabled={pending} aria-describedby="password-hint" />
+        </label>
+        <label className="epl-slide-field"><span>Confirm new password</span>
+          <input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required disabled={pending} />
+        </label>
       </div>
-      <button type="submit" className="rm-primary" disabled={pending} style={{ alignSelf: "flex-start", marginTop: 4 }}>
-        {pending ? <IconLoader2 size={15} className="animate-spin" /> : <IconCheck size={15} />}
-        Update password
+      <p id="password-hint" className="rm-panel-hint">Use 8–128 characters. Changing your password signs out all other devices.</p>
+      {error && <p role="alert" className="rm-state-error">{error}</p>}
+      <button type="submit" className="rm-primary" disabled={pending} style={{ alignSelf: "flex-start" }}>
+        {pending ? <IconLoader2 size={15} className="animate-spin" /> : <IconCheck size={15} />}Update password
       </button>
     </form>
   );
 }
 
-export function ChangePasswordSection() {
+export function ChangePasswordSection({ onChanged }: { onChanged?: () => Promise<void> }) {
   return (
     <section className="rm-panel-section st-profile-card">
-      <div className="rm-panel-section-head">
-        <IconKey size={16} />
-        <span>Change password</span>
-      </div>
-      <p className="rm-panel-hint" style={{ marginTop: 0, marginBottom: 14 }}>
-        Use your current password to set a new one for this account.
-      </p>
-      <ChangePasswordForm />
+      <div className="rm-panel-section-head"><IconKey size={16} /><span>Change password</span></div>
+      <ChangePasswordForm onChanged={onChanged} />
     </section>
   );
 }

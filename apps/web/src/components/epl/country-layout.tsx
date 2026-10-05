@@ -71,11 +71,11 @@ export function CountryLayout({ children, activePage, pageTitle }: Props) {
   }, [isPending, session, router]);
 
   useEffect(() => {
-    if (home.isLoading || home.role === "super_admin") return;
+    if (home.isLoading || home.capabilities.platformView) return;
     if (isCountryWorkspaceRole(home.role) && home.tenant?.id && id && id !== home.tenant.id) {
       router.replace(`/dashboard/countries/${home.tenant.id}` as never);
     }
-  }, [home.isLoading, home.role, home.tenant?.id, id, router]);
+  }, [home.isLoading, home.role, home.capabilities.platformView, home.tenant?.id, id, router]);
 
   if (isPending || !session?.user) return null;
 
@@ -125,7 +125,7 @@ export function CountryLayout({ children, activePage, pageTitle }: Props) {
     ? `${mock.activePrograms} programs · ${mock.fellows} fellows`
     : `${live!.countryCode} · Hub ready for data`;
 
-  const canBrowseAllCountries = home.role === "super_admin";
+  const canBrowseAllCountries = home.capabilities.platformView;
   const isManager = isNetworkManager((home.role ?? "viewer") as UserRole);
   const includeSettings = isManager;
   const user = {
@@ -136,6 +136,7 @@ export function CountryLayout({ children, activePage, pageTitle }: Props) {
 
   return (
     <NestedShell
+      accountSettings={activePage === "settings"}
       backLabel={canBrowseAllCountries ? "Back to Countries" : undefined}
       backHref={canBrowseAllCountries ? "/dashboard/countries" : undefined}
       sectionTitle={name}

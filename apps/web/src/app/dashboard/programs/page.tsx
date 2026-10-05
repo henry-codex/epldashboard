@@ -120,7 +120,7 @@ export default function ProgramsPage() {
 
   const portfolioQuery = useQuery({
     ...trpc.platform.programPortfolio.queryOptions(),
-    enabled: Boolean(session?.user) && !home.isLoading && home.role === "super_admin",
+    enabled: Boolean(session?.user) && !home.isLoading && home.capabilities.platformView,
   });
 
   const programs = portfolioQuery.data?.programs ?? [];

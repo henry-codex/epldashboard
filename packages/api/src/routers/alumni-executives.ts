@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { canManageGlobalOperations } from "../lib/platform-access";
 import { and, asc, eq, ilike, inArray, ne, or } from "drizzle-orm";
 import { db, alumniExecutives, tenants } from "@epl-fellows-platform/db";
-import { router, protectedProcedure, superAdminProcedure } from "../index";
+import { router, protectedProcedure, globalOperationsProcedure } from "../index";
 
 const executiveInputSchema = z.object({
   firstName: z.string().min(1).max(80),
@@ -119,7 +120,7 @@ export const alumniExecutivesRouter = router({
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      const includeArchived = ctx.role === "super_admin" && Boolean(input?.includeArchived);
+      const includeArchived = canManageGlobalOperations(ctx) && Boolean(input?.includeArchived);
       const filters = includeArchived ? [] : [eq(alumniExecutives.status, "active")];
 
       if (input?.search?.trim()) {
@@ -149,11 +150,11 @@ export const alumniExecutivesRouter = router({
 
       return {
         items: rows.map((row) => mapExecutive(row, row.tenantId ? hubMap.get(row.tenantId) : undefined)),
-        canManage: ctx.role === "super_admin",
+        canManage: canManageGlobalOperations(ctx),
       };
     }),
 
-  create: superAdminProcedure.input(executiveInputSchema).mutation(async ({ input }) => {
+  create: globalOperationsProcedure.input(executiveInputSchema).mutation(async ({ input }) => {
     const hub = await assertCountryHub(input.tenantId);
     await assertParentExists(input.parentId);
 
@@ -183,7 +184,7 @@ export const alumniExecutivesRouter = router({
     return mapExecutive(created, hub ?? undefined);
   }),
 
-  update: superAdminProcedure
+  update: globalOperationsProcedure
     .input(executiveInputSchema.partial().extend({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const existing = await db.query.alumniExecutives.findFirst({
@@ -241,7 +242,7 @@ export const alumniExecutivesRouter = router({
       return mapExecutive(updated, nextHub ?? undefined);
     }),
 
-  archive: superAdminProcedure
+  archive: globalOperationsProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const [updated] = await db
@@ -257,7 +258,7 @@ export const alumniExecutivesRouter = router({
       return { success: true };
     }),
 
-  delete: superAdminProcedure
+  delete: globalOperationsProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const existing = await db.query.alumniExecutives.findFirst({

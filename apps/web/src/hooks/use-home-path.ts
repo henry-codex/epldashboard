@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveAccess } from "@epl-fellows-platform/auth/access-policy";
 import { useQuery } from "@tanstack/react-query";
 import { trpc } from "@/utils/trpc";
 import { homePathForSession } from "@/lib/home-path";
@@ -13,9 +14,12 @@ export function useHomePath() {
   });
   return {
     path,
+    workspace: me.data?.workspace ?? null,
+    capabilities: me.data?.capabilities ?? resolveAccess([]).capabilities,
     role: me.data?.role,
     tenant: me.data?.tenant ?? null,
     isLoading: me.isLoading,
     isError: me.isError,
+    refetch: me.refetch,
   };
 }

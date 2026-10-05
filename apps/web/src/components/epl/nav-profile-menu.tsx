@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { PROFILE_PATH, SECURITY_PATH } from "@/lib/account-settings";
+import { queryClient } from "@/utils/trpc";
 import {
   IconChevronDown,
   IconLogout,
@@ -63,23 +65,8 @@ function ProfileAvatar({
   );
 }
 
-function profileSettingsHref(
-  pathname: string | null,
-  params: Record<string, string | string[] | undefined>,
-  role?: string | null,
-) {
-  if (role === "super_admin") return "/dashboard/settings/profile";
-  const hubId = typeof params?.id === "string" ? params.id : "";
-  if (pathname?.includes("/dashboard/countries/") && hubId) {
-    return `/dashboard/countries/${hubId}/settings/profile`;
-  }
-  return "/dashboard/settings/profile";
-}
-
 export function NavProfileMenu({ user }: { user?: UserLike }) {
   const router = useRouter();
-  const pathname = usePathname();
-  const params = useParams();
   const home = useHomePath();
   const { data: session } = authClient.useSession();
   const [open, setOpen] = useState(false);
@@ -89,7 +76,7 @@ export function NavProfileMenu({ user }: { user?: UserLike }) {
   const displayName = profile?.name?.trim() || "Admin";
   const email = profile?.email ?? "";
   const roleLabel = ROLE_LABEL[home.role ?? ""] ?? home.role ?? "Member";
-  const settingsHref = profileSettingsHref(pathname, params, home.role);
+  const settingsHref = PROFILE_PATH;
 
   useEffect(() => {
     if (!open) return;
@@ -114,7 +101,9 @@ export function NavProfileMenu({ user }: { user?: UserLike }) {
 
   async function handleSignOut() {
     setOpen(false);
-    await authClient.signOut();
+    const result = await authClient.signOut();
+    if (result.error) return;
+    queryClient.clear();
     router.replace("/login");
   }
 
@@ -167,13 +156,13 @@ export function NavProfileMenu({ user }: { user?: UserLike }) {
               My profile
             </Link>
             <Link
-              href={settingsHref as never}
+              href={SECURITY_PATH}
               className="epl-nav-profile-action"
               role="menuitem"
               onClick={() => setOpen(false)}
             >
               <IconSettings size={16} />
-              Account settings
+              Security
             </Link>
             <button
               type="button"

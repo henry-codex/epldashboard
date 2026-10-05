@@ -1,7 +1,12 @@
 import type { IncomingHttpHeaders } from "node:http";
+import { auditStorage, type AuditContext } from "@epl-fellows-platform/db/audit";
 import { fromNodeHeaders, auth, type UserRole } from "@epl-fellows-platform/auth";
-import { db, userTenants } from "@epl-fellows-platform/db";
+import { resolveAccess, type AccessCapabilities, type Workspace } from "@epl-fellows-platform/auth/access-policy";
+import { db, userTenants, tenants } from "@epl-fellows-platform/db";
 import { eq } from "drizzle-orm";
+import { transactionalDb } from "@epl-fellows-platform/db";
+import { getMfaStatus } from "@epl-fellows-platform/auth/mfa-store";
+import type { MfaStatus } from "@epl-fellows-platform/auth/mfa-policy";
 
 export interface UserTenantInfo {
   tenantId: string;
@@ -10,27 +15,15 @@ export interface UserTenantInfo {
 }
 
 export type Context = {
+  audit?: AuditContext;
+  capabilities?: AccessCapabilities;
+  workspace?: Workspace | null;
   session: Awaited<ReturnType<typeof auth.api.getSession>>;
+  mfa: MfaStatus | null;
   userTenant: UserTenantInfo | null;
   role: UserRole;
   tenantId: string | null;
 };
-
-const ROLE_RANK: Record<string, number> = {
-  super_admin: 100,
-  tenant_admin: 80,
-  country_admin: 60,
-  alumni_exec: 50,
-  fellow: 30,
-  viewer: 10,
-};
-
-function pickBestMembership(rows: Array<{ tenantId: string; role: string; permissions: unknown }>) {
-  if (!rows.length) return null;
-  return [...rows].sort(
-    (a, b) => (ROLE_RANK[b.role] ?? 0) - (ROLE_RANK[a.role] ?? 0),
-  )[0]!;
-}
 
 /** Compatible with tRPC Express adapter `{ req, res }` without exporting Express types. */
 export async function createContext(opts: {
@@ -44,6 +37,7 @@ export async function createContext(opts: {
   let userTenant: UserTenantInfo | null = null;
   let role: UserRole = "viewer";
   let tenantId: string | null = null;
+  let access = resolveAccess([]);
 
   if (session?.user?.id) {
     const memberships = await db
@@ -51,11 +45,13 @@ export async function createContext(opts: {
         tenantId: userTenants.tenantId,
         role: userTenants.role,
         permissions: userTenants.permissions,
+        countryCode: tenants.countryCode, isActive: tenants.isActive, name: tenants.name,
       })
-      .from(userTenants)
+      .from(userTenants).innerJoin(tenants, eq(userTenants.tenantId, tenants.id))
       .where(eq(userTenants.userId, session.user.id));
 
-    const best = pickBestMembership(memberships);
+    access = resolveAccess(memberships);
+    const best = memberships.find(m => m.tenantId === access.tenantId && m.role === access.role);
     if (best) {
       userTenant = {
         tenantId: best.tenantId,
@@ -68,7 +64,10 @@ export async function createContext(opts: {
   }
 
   return {
+    audit: auditStorage.getStore(),
+    capabilities: access.capabilities, workspace: access.workspace,
     session,
+    mfa: session ? await getMfaStatus(transactionalDb, session.user.id, session.session.id) : null,
     userTenant,
     role,
     tenantId,

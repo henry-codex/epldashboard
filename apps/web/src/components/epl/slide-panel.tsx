@@ -1,7 +1,7 @@
 "use client";
 
 import { IconX } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode, type TransitionEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode, type TransitionEvent } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -34,6 +34,10 @@ export function SlidePanel({
   const [present, setPresent] = useState(open);
   const [entered, setEntered] = useState(false);
   const [settled, setSettled] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     setMounted(true);
@@ -41,6 +45,7 @@ export function SlidePanel({
 
   useEffect(() => {
     if (open) {
+      returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setPresent(true);
       setSettled(false);
       const id = requestAnimationFrame(() => {
@@ -51,6 +56,8 @@ export function SlidePanel({
 
     setEntered(false);
     setSettled(false);
+    const timer = setTimeout(() => setPresent(false), 400);
+    return () => clearTimeout(timer);
   }, [open]);
 
   useEffect(() => {
@@ -63,13 +70,19 @@ export function SlidePanel({
   }, [present]);
 
   useEffect(() => {
-    if (!present) return;
+    if (!present || !mounted) return;
+    const controls = () => Array.from(panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') ?? []).filter((node) => node.getAttribute("type") !== "hidden");
+    if (!panelRef.current?.contains(document.activeElement)) controls()[0]?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") { e.preventDefault(); closeRef.current(); }
+      if (e.key !== "Tab") return;
+      const items = controls(); const first = items[0]; const last = items.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [present, onClose]);
+    return () => { window.removeEventListener("keydown", onKey); if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus(); };
+  }, [present, mounted]);
 
   function handlePanelTransitionEnd(e: TransitionEvent<HTMLElement>) {
     if (e.target !== e.currentTarget) return;
@@ -90,6 +103,7 @@ export function SlidePanel({
       className={`epl-slide-root${theme === "light" ? " epl-light" : ""}${entered ? " is-open" : ""}`}
       aria-modal="true"
       role="dialog"
+      aria-label={title}
     >
       <button
         type="button"
@@ -98,6 +112,7 @@ export function SlidePanel({
         onClick={onClose}
       />
       <aside
+        ref={panelRef}
         className={`epl-slide-panel${entered ? " is-in" : ""}${settled ? " is-settled" : ""}`}
         style={{ width }}
         onTransitionEnd={handlePanelTransitionEnd}

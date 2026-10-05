@@ -286,18 +286,21 @@ async function run() {
   const { db, fellows, placements, hubPrograms, hubPartners, tenants } = await import("../index.js");
   const { and, eq } = await import("drizzle-orm");
 
+  const summary = { created: 0, updated: 0, partnersCreated: 0, partnersUpdated: 0, unavailableSources: targets.length - results.length, skipped: results.reduce((count, result) => count + result.flagged.length, 0) };
   for (const r of results) {
     const tenantId =
       args.tenantMap[r.tenantSlug] ??
       (await db.query.tenants.findFirst({ where: eq(tenants.slug, r.tenantSlug) }))?.id;
 
     if (!tenantId) {
+      summary.skipped += r.ready.length;
       console.error(`✗ ${r.country}: no tenant found for slug "${r.tenantSlug}". Create the country hub first (Settings > Countries) or pass --tenant-map ${r.tenantSlug}=<uuid>.`);
       continue;
     }
 
     const programs = await db.query.hubPrograms.findMany({ where: eq(hubPrograms.tenantId, tenantId) });
     if (programs.length !== 1) {
+      summary.skipped += r.ready.length;
       console.error(
         `✗ ${r.country}: expected exactly one program configured for this hub to default onto, found ${programs.length}. Set up the program in Settings first, then re-run.`,
       );
@@ -412,13 +415,36 @@ async function run() {
       }
     }
 
+    summary.created += created; summary.updated += updated;
+    summary.partnersCreated += partnersCreated; summary.partnersUpdated += partnersUpdated;
     console.log(
       `✓ ${r.country}: ${created} fellows created, ${updated} updated, ${r.flagged.length} still flagged; ${partnersCreated} placement institutions created, ${partnersUpdated} fellow-counts updated.`,
     );
   }
+  return summary;
 }
 
-run()
+async function runAudited() {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.apply) return run();
+  const argv = process.argv.slice(2), operator = argv[argv.indexOf("--operator") + 1];
+  if (!argv.includes("--operator") || !operator || operator.startsWith("--")) throw new Error("--apply requires --operator ID");
+  const { transactionalDb } = await import("../index");
+  const { auditedTransaction, withAuditContext, requestAuditContext, writeAudit, auditFailure } = await import("../audit");
+  return withAuditContext({ ...requestAuditContext({ source: "cli" }), actor: { kind: "operator", id: operator, name: null, role: null }, procedure: "system.import" }, async () => {
+    try {
+      return await auditedTransaction(transactionalDb, async (tx) => {
+        const summary = await run();
+        if (process.exitCode) throw new Error("Country import was rejected. Review the validation report.");
+        await writeAudit(tx, { action: "system.import", category: "system", targetType: "country_data", outcome: summary?.skipped || summary?.unavailableSources ? "partial" : "success", details: summary ?? { count: 0 } });
+      });
+    } catch (error) {
+      await auditFailure(transactionalDb, { action: "system.import", category: "system", targetType: "country_data", outcome: "failed", details: { reasonCode: "IMPORT_FAILED" } });
+      throw error;
+    }
+  });
+}
+runAudited()
   .catch((err) => {
     console.error(err);
     process.exitCode = 1;

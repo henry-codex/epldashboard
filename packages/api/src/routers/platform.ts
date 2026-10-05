@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { canViewPlatform } from "../lib/platform-access";
 import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import {
   db,
@@ -183,10 +184,10 @@ async function programHealthForTenant(tenantId: string) {
 
 export const platformRouter = router({
   overview: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Platform overview is only available to Super Admins",
+        message: "Platform overview requires global operations access",
       });
     }
 
@@ -385,10 +386,10 @@ export const platformRouter = router({
   }),
 
   network: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Platform network view is only available to Super Admins",
+        message: "Platform network view requires global operations access",
       });
     }
 
@@ -542,10 +543,10 @@ export const platformRouter = router({
   }),
 
   programPortfolio: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Platform program portfolio is only available to Super Admins",
+        message: "Platform program portfolio requires global operations access",
       });
     }
 
@@ -680,10 +681,10 @@ export const platformRouter = router({
   // a separate import. Nothing here is invented: a country with no cohort
   // data entered just contributes zeros, same as its own Summary panel would.
   countrySummary: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Platform country summary is only available to Super Admins",
+        message: "Platform country summary requires global operations access",
       });
     }
 
@@ -788,10 +789,10 @@ export const platformRouter = router({
   // "Target" field: no imported or entered data source has one, so it's
   // left out rather than guessed.
   mcfSummary: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Platform MCF summary is only available to Super Admins",
+        message: "Platform MCF summary requires global operations access",
       });
     }
 
@@ -903,10 +904,10 @@ export const platformRouter = router({
   }),
 
   eventPortfolio: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Platform events view is only available to Super Admins",
+        message: "Platform events view requires global operations access",
       });
     }
 
@@ -954,7 +955,6 @@ export const platformRouter = router({
         const end = row.endsAt ?? row.startsAt;
         const isPast = end < now;
         const isOngoing = !isPast && row.startsAt <= now;
-        const isUpcoming = !isPast && row.startsAt > now;
         const timeframe: "ongoing" | "upcoming" | "past" = isPast
           ? "past"
           : isOngoing
@@ -1017,10 +1017,10 @@ export const platformRouter = router({
   }),
 
   cohortPortfolio: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Platform cohort portfolio is only available to Super Admins",
+        message: "Platform cohort portfolio requires global operations access",
       });
     }
 
@@ -1241,10 +1241,10 @@ export const platformRouter = router({
   }),
 
   alumniDashboard: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.role !== "super_admin") {
+    if (!canViewPlatform(ctx)) {
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Continental alumni dashboard is only available to Super Admins",
+        message: "Continental alumni dashboard requires global operations access",
       });
     }
 

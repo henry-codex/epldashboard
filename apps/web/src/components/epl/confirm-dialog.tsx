@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { IconAlertTriangle } from "@tabler/icons-react";
@@ -23,10 +23,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [state, setState] = useState<ConfirmState | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => setMounted(true), []);
 
   const confirm = useCallback((options: ConfirmOptions) => {
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return new Promise<boolean>((resolve) => {
       setState({ ...options, resolve });
     });
@@ -53,11 +56,18 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!state) return;
+    const previousFocus = returnFocusRef.current;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") settle(false);
+      if (e.key === "Escape") { e.preventDefault(); settle(false); }
+      if (e.key !== "Tab") return;
+      const controls = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+      const first = controls?.[0];
+      const last = controls?.[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus(); };
   }, [state, settle]);
 
   return (
@@ -69,6 +79,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               className={`epl-confirm-root${theme === "light" ? " epl-light" : ""}`}
               role="alertdialog"
               aria-modal="true"
+              aria-labelledby={state.title ? "account-confirm-title" : undefined}
+              aria-describedby="account-confirm-message"
             >
               <button
                 type="button"
@@ -76,12 +88,12 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 aria-label="Cancel"
                 onClick={() => settle(false)}
               />
-              <div className="epl-confirm-card">
+              <div className="epl-confirm-card" ref={dialogRef}>
                 <div className={`epl-confirm-icon${state.danger ? " is-danger" : ""}`}>
                   <IconAlertTriangle size={20} />
                 </div>
-                {state.title ? <h3 className="epl-confirm-title">{state.title}</h3> : null}
-                <p className="epl-confirm-message">{state.message}</p>
+                {state.title ? <h3 id="account-confirm-title" className="epl-confirm-title">{state.title}</h3> : null}
+                <p id="account-confirm-message" className="epl-confirm-message">{state.message}</p>
                 <div className="epl-confirm-actions">
                   <button type="button" className="rm-ghost" onClick={() => settle(false)}>
                     {state.cancelLabel ?? "Cancel"}

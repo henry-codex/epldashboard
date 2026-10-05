@@ -16,9 +16,9 @@ export function CountrySettingsShell({ hubId, activeTab, accent, canManageUsers,
 
   const tabs = [
     ...(canManageUsers
-      ? [{ key: "users" as const, label: "Country managers", hint: "Create and manage hub logins", icon: <IconUsers size={18} /> }]
+      ? [{ key: "users" as const, label: "Country managers", hint: "Invite country administrators", icon: <IconUsers size={18} /> }]
       : []),
-    { key: "profile" as const, label: "My profile", hint: "Name, email, and password", icon: <IconUserCircle size={18} /> },
+    { key: "profile" as const, label: "My profile", hint: "Your profile and account security", icon: <IconUserCircle size={18} /> },
   ];
 
   return (
@@ -71,7 +71,7 @@ export function CountrySettingsShell({ hubId, activeTab, accent, canManageUsers,
               <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "var(--font)" }}>Access control</span>
             </div>
             <p style={{ margin: 0, fontSize: 11, color: "var(--emuted)", lineHeight: 1.45, fontFamily: "var(--font)" }}>
-              New users get immediate login access for this country hub.
+              Recipients get hub access after accepting their email invitation.
             </p>
           </div>
         )}

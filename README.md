@@ -1,5 +1,7 @@
 # epl-fellows-platform
 
+Administrator audit history: [setup, permissions, and retention](docs/AUDIT-LOG.md).
+
 This project was created with [Better Fullstack](https://github.com/Marve10s/Better-Fullstack), a modern TypeScript stack that combines Next.js, Nestjs, TRPC, and more.
 
 ## Features
@@ -67,3 +69,11 @@ epl-fellows-platform/
 - `pnpm run check-types`: Check TypeScript types across all apps
 - `pnpm run db:push`: Push schema changes to database
 - `pnpm run db:studio`: Open database studio UI
+
+## Account settings and password recovery
+
+New accounts require an invitation. See [Invitation onboarding](docs/USER-ONBOARDING.md) for the additive schema change, initial administrator bootstrap, and access-management operations.
+
+See [Account settings](docs/ACCOUNT-SETTINGS.md) for local email setup, production SMTP configuration, and isolated security tests.
+
+See [Multi-factor authentication](docs/MFA.md) for the optional MFA enrollment for every role, additive MFA setup command, encryption-secret preservation, and private operator recovery procedure.

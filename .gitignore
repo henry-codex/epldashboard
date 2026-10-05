@@ -51,3 +51,5 @@ temp
 
 # Raw fellow/alumni data exports (contains PII - names, phone, email)
 /data
+# Local account verification artifacts
+/.verification/

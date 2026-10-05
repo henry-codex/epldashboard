@@ -1144,9 +1144,13 @@ button.epl-nav-item {
   font-family: var(--font);
   cursor: pointer;
 }
-.rm-ghost:hover {
+.rm-ghost:hover:not(:disabled) {
   color: var(--ewhite);
   background: rgba(255, 255, 255, 0.04);
+}
+.rm-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .rm-list {
@@ -2880,6 +2884,21 @@ button.st-toggle-card {
 }
 
 /* ── Settings shared (users / profile / security) ─────────── */
+/* Native dropdown menus need opaque, themed option surfaces, including in portals. */
+:where(.epl-shell, .epl-slide-root) select {
+  color-scheme: dark;
+}
+:where(.epl-shell, .epl-slide-root) select :is(option, optgroup) {
+  background-color: #111827;
+  color: #f9fafb;
+}
+:where(.epl-light, .light) select {
+  color-scheme: light;
+}
+:where(.epl-light, .light) select :is(option, optgroup) {
+  background-color: #ffffff;
+  color: #111827;
+}
 .st-select {
   height: 42px;
   padding: 0 14px;
@@ -2897,7 +2916,8 @@ button.st-toggle-card {
   border-color: rgba(65, 80, 163, 0.65);
   box-shadow: 0 0 0 3px rgba(65, 80, 163, 0.18);
 }
-.st-select:disabled {
+.st-select:disabled,
+.epl-slide-field select:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -3705,7 +3725,8 @@ a.rm-primary {
   text-transform: uppercase;
   color: var(--emuted);
 }
-.epl-slide-field input {
+.epl-slide-field input,
+.epl-slide-field select {
   height: 42px;
   padding: 0 14px;
   border-radius: 10px;
@@ -3718,7 +3739,8 @@ a.rm-primary {
   width: 100%;
   box-sizing: border-box;
 }
-.epl-slide-field input:focus {
+.epl-slide-field input:focus,
+.epl-slide-field select:focus {
   border-color: rgba(65, 80, 163, 0.65);
   box-shadow: 0 0 0 3px rgba(65, 80, 163, 0.18);
 }
@@ -3837,7 +3859,8 @@ a.rm-primary {
   box-shadow: 0 24px 64px rgba(20, 30, 80, 0.18);
 }
 
-.epl-light .epl-slide-field input {
+.epl-light .epl-slide-field input,
+.epl-light .epl-slide-field select {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(0, 0, 0, 0.1);
   color: #111827;
@@ -4601,6 +4624,7 @@ a.rm-primary {
   .cs-settings-grid {
     grid-template-columns: 1fr !important;
   }
+  .cs-settings-grid > aside { position: static !important; }
 }
 
 /* ── Network aggregate cards ───────────────────────────────── */
@@ -4883,3 +4907,213 @@ a.rm-primary {
     @apply font-sans;
   }
 }
+
+/* Account settings and recovery */
+.account-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.account-sessions { list-style: none; margin: 0; padding: 0; }
+.account-session { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--eborder, rgba(128,128,128,.2)); }
+.account-session:last-child { border-bottom: 0; }
+.account-session-details { min-width: 0; overflow-wrap: anywhere; }
+.account-session-details strong { margin-right: 10px; }
+.account-session-details p { color: var(--emuted); font-size: 13px; margin: 6px 0 0; }
+.account-recovery { width: 100%; max-width: 480px; padding: 32px; display: flex; flex-direction: column; gap: 24px; overflow-wrap: anywhere; }
+.account-recovery h1 { color: var(--ewhite); font-size: 26px; font-weight: 800; margin: 0; }
+.account-recovery p { color: var(--emuted); line-height: 1.6; }
+.account-recovery .rm-state-error { color: #e05c5c; }
+.account-recovery input { width: 100%; }
+.account-recovery .rm-primary, .account-recovery .rm-ghost { justify-content: center; }
+@media (max-width: 640px) {
+  .account-session { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .account-recovery { padding: 24px 18px; }
+  .st-profile-card .rm-panel-row { display: flex; flex-direction: column; }
+  .st-profile-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Account navigation stacks above the form on small screens. */
+@media (max-width: 760px) {
+  .epl-account-shell .epl-app { flex-direction: column; }
+  .epl-account-shell .epl-sub-sidebar { width: 100%; height: auto; flex: 0 0 auto; }
+  .epl-account-shell .epl-sub-brand,
+  .epl-account-shell .epl-sub-footer { display: none; }
+  .epl-account-shell .epl-sub-nav { display: flex; flex-wrap: wrap; flex: none; padding: 6px; }
+  .epl-account-shell .epl-sub-nav-item { width: auto; margin: 2px; padding: 10px 12px; min-height: 44px; }
+  .epl-account-shell .epl-main { height: auto; }
+  .epl-account-shell .epl-dash-header { padding: 10px 12px; height: auto; gap: 8px; flex-wrap: wrap; }
+  .epl-account-shell .epl-page { padding: 20px 16px 32px; }
+  .epl-account-shell .st-profile-card { padding: 18px; }
+}
+
+/* User invitations and assigned access. */
+.access-records { display: grid; gap: 14px; }
+.access-record { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; padding: 20px; min-width: 0; overflow-wrap: anywhere; }
+.access-record h2 { color: var(--ewhite); font-size: 16px; font-weight: 700; margin: 0 0 6px; }
+.access-record p { color: var(--emuted); font-size: 13px; line-height: 1.6; margin: 4px 0; }
+.access-management .account-actions button[aria-pressed="true"] { background: rgba(65,80,163,.3); border-color: #6574c7; }
+.invitation-accept .rm-panel-form { gap: 16px; }
+.invitation-accept .rm-primary { width: 100%; }
+@media (max-width: 640px) {
+  .access-record { align-items: flex-start; flex-direction: column; padding: 16px; }
+  .access-record .account-actions { margin-bottom: 0; }
+  .access-management .rm-header { align-items: flex-start; flex-direction: column; }
+  .invitation-accept { padding: 22px 18px; }
+}
+
+/* Auth pages scroll from the top when their content exceeds the viewport. */
+.epl-shell.epl-auth-shell {
+  width: 100%;
+  height: 100dvh;
+  padding: clamp(16px, 3vw, 40px);
+  align-items: center;
+  justify-content: flex-start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.epl-auth-shell > .epl-orb { position: fixed; }
+.epl-auth-content { position: relative; z-index: 1; flex: none; width: 100%; max-width: 440px; margin-block: auto; }
+.epl-auth-shell--wide .epl-auth-content { max-width: 1040px; }
+
+/* Account MFA uses the existing theme and generates its QR code locally. */
+.mfa-page {
+  --mfa-surface: rgba(8, 17, 34, 0.94);
+  --mfa-panel: rgba(255, 255, 255, 0.035);
+  --mfa-accent: #b8c5ff;
+  --emuted: #acb8ce;
+  padding: 28px;
+  display: grid;
+  gap: 24px;
+  background: var(--mfa-surface);
+}
+.mfa-page--setup { max-width: none; }
+.mfa-page p, .mfa-enrollment p, .mfa-backup p { margin: 0; font-size: 14px; line-height: 1.55; }
+.mfa-page-header { display: flex; align-items: flex-start; gap: 16px; }
+.mfa-page-header > div:last-child { display: grid; gap: 6px; min-width: 0; }
+.mfa-page-header .rm-kicker { color: var(--mfa-accent); font-size: 10px; letter-spacing: 0.12em; }
+.mfa-page-header h1 { font-size: clamp(24px, 2.4vw, 30px); letter-spacing: -0.035em; line-height: 1.2; }
+.mfa-page-icon {
+  display: grid; place-items: center; flex: 0 0 48px; height: 48px;
+  border-radius: 14px; background: rgba(117, 141, 255, 0.12);
+  border: 1px solid rgba(117, 141, 255, 0.2); color: var(--mfa-accent);
+}
+.mfa-form { display: grid; gap: 16px; margin-top: 16px; min-width: 0; }
+.mfa-enrollment { container-type: inline-size; }
+.mfa-page > .mfa-enrollment { margin-top: 0; gap: 20px; }
+.mfa-form input { min-width: 0; max-width: 100%; }
+.mfa-form button, .mfa-page button { min-height: 44px; }
+.mfa-enrollment-grid, .mfa-start {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px;
+}
+.mfa-setup-step {
+  display: flex; flex-direction: column; align-items: stretch; gap: 16px; min-width: 0;
+  padding: 22px; background: var(--mfa-panel, var(--eglass));
+  border: 1px solid var(--gborder); border-radius: 16px;
+}
+.mfa-step-heading { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ewhite); font-size: 16px; font-weight: 700; line-height: 1.4; }
+.mfa-step-number {
+  display: grid; place-items: center; flex: 0 0 28px; height: 28px;
+  border: 1px solid var(--gborder2); border-radius: 50%;
+  background: rgba(117, 141, 255, 0.08); color: var(--mfa-accent, var(--ewhite));
+  font-size: 12px; font-weight: 700;
+}
+.mfa-qr { background: white; color: black; padding: 16px; border-radius: 12px; width: fit-content; max-width: 100%; margin: 0 auto; }
+.mfa-qr svg { display: block; width: 192px; max-width: 100%; height: auto; }
+.mfa-manual-key input { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.mfa-connect .mfa-account-note { font-size: 12px; text-align: center; }
+.mfa-backup { display: grid; gap: 16px; min-width: 0; }
+.mfa-backup ul {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px; list-style: none; padding: 0; margin: 0;
+}
+.mfa-backup li { display: grid; place-items: center; min-height: 34px; padding: 6px 10px; border: 1px solid var(--gborder); border-radius: 8px; background: var(--gb); }
+.mfa-backup code { color: var(--ewhite); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mfa-backup .rm-ghost { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.mfa-ack {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px;
+  margin-top: auto; border: 1px solid var(--gborder); border-radius: 10px;
+  color: var(--ewhite); font-size: 13px; line-height: 1.5; cursor: pointer;
+}
+.mfa-ack--saved { border-color: rgba(46, 194, 126, 0.5); background: rgba(46, 194, 126, 0.07); }
+.mfa-ack input { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 1px; accent-color: var(--eblue); cursor: pointer; }
+.mfa-finish { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 24px; padding-top: 20px; border-top: 1px solid var(--gborder); }
+.mfa-finish > div { display: grid; gap: 6px; }
+.mfa-finish > div > p { padding-left: 38px; }
+.mfa-finish .mfa-code-form { margin-top: 0; }
+.mfa-code-form--enrollment { grid-template-columns: minmax(140px, 1fr) minmax(130px, 1fr); align-items: end; gap: 12px; }
+.mfa-code-form--enrollment > button { grid-column: 2; grid-row: 1; }
+.mfa-code-form--enrollment > .rm-state-error, .mfa-code-form--enrollment > a { grid-column: 1 / -1; }
+.mfa-code-form input[inputmode="numeric"] { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 20px; letter-spacing: 0.22em; }
+.mfa-start { align-items: center; padding: 28px; border: 1px solid var(--gborder); border-radius: 16px; background: var(--mfa-panel, var(--eglass)); }
+.mfa-start-intro { display: grid; gap: 10px; }
+.mfa-start-intro h2 { font-size: 18px; font-weight: 700; color: var(--ewhite); }
+.mfa-start .rm-panel-form { margin: 0; }
+.mfa-page-footer { display: flex; align-items: center; gap: 24px; padding-top: 18px; border-top: 1px solid var(--gborder); }
+.mfa-page-footer p { flex: 1; font-size: 12px; }
+.mfa-page-footer button { flex: none; font-size: 12px; }
+.mfa-page:not(.mfa-page--setup) .mfa-page-footer { flex-direction: column; align-items: stretch; gap: 12px; }
+.mfa-page :is(button, input, a):focus-visible, .mfa-enrollment :is(button, input, a):focus-visible {
+  outline: 2px solid var(--mfa-accent, var(--ewhite)); outline-offset: 3px;
+}
+.epl-light .mfa-page {
+  --mfa-surface: rgba(255, 255, 255, 0.97);
+  --mfa-panel: #f4f7fc;
+  --mfa-accent: #35469b;
+  --emuted: #52627b;
+}
+.epl-light .mfa-page .rm-state-error { color: #b42332; }
+/* Keep the complete setup compact on common laptop heights. */
+@media (min-width: 761px) and (max-height: 850px) {
+  .epl-shell.epl-auth-shell--wide { padding: 20px; }
+  .mfa-page--setup { padding: 22px; gap: 16px; }
+  .mfa-page--setup .mfa-page-header h1 { font-size: 26px; }
+  .mfa-page--setup .mfa-page-header > div:last-child { gap: 4px; }
+  .mfa-page--setup .mfa-setup-step { padding: 18px; gap: 12px; }
+  .mfa-page--setup .mfa-backup { gap: 12px; }
+  .mfa-page--setup .mfa-backup ul { gap: 6px; }
+  .mfa-page--setup .mfa-backup li { min-height: 28px; padding-block: 4px; }
+  .mfa-page--setup .mfa-qr { padding: 12px; }
+  .mfa-page--setup .mfa-qr svg { width: 160px; }
+  .mfa-page--setup > .mfa-enrollment { gap: 16px; }
+  .mfa-page--setup .mfa-finish { padding-top: 16px; }
+  .mfa-page--setup .mfa-page-footer { padding-top: 14px; }
+}
+@container (max-width: 640px) {
+  .mfa-enrollment-grid, .mfa-start, .mfa-finish { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .mfa-page { padding: 22px; gap: 20px; }
+  .mfa-enrollment-grid, .mfa-start, .mfa-finish { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .mfa-setup-step, .mfa-start { padding: 18px; }
+  .mfa-ack { margin-top: 0; }
+  .mfa-page-footer { align-items: stretch; flex-direction: column; gap: 12px; }
+}
+@media (max-width: 480px) {
+  .mfa-page { padding: 18px; }
+  .mfa-page-header { gap: 12px; }
+  .mfa-page-icon { flex-basis: 38px; height: 38px; border-radius: 11px; }
+  .mfa-page-icon svg { width: 22px; height: 22px; }
+  .mfa-page-header h1 { font-size: 23px; }
+  .mfa-setup-step, .mfa-start { padding: 14px; }
+  .mfa-step-heading { font-size: 15px; }
+  .mfa-code-form--enrollment { grid-template-columns: minmax(0, 1fr); }
+  .mfa-code-form--enrollment > button { grid-column: auto; grid-row: auto; }
+  .mfa-backup code { font-size: 12px; }
+}
+
+/* Shared authenticator, email-code and passkey controls. */
+.mfa-method-choices { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+.mfa-method-choice { display:flex; flex-direction:column; align-items:flex-start; text-align:left; gap:6px; padding:16px; border:1px solid rgba(148,163,184,.35); border-radius:14px; color:inherit; background:rgba(148,163,184,.06); min-height:86px; cursor:pointer; }
+.mfa-method-choice span { font-size:13px; opacity:.8; line-height:1.5; }
+.mfa-method-choice[aria-pressed=true], .mfa-method-tabs button[aria-pressed=true] { border-color:#60a5fa; background:rgba(59,130,246,.15); box-shadow:0 0 0 1px rgba(59,130,246,.3); }
+.mfa-method-choice:focus-visible, .mfa-method-tabs button:focus-visible { outline:3px solid #60a5fa; outline-offset:3px; }
+.mfa-method-tabs, .mfa-method-summary { display:flex; flex-wrap:wrap; gap:8px; }
+.mfa-method-summary span { font-size:12px; padding:5px 10px; border:1px solid rgba(52,211,153,.4); border-radius:20px; }
+.mfa-passkey-signin { display:grid; gap:8px; margin-top:12px; }
+.mfa-passkey-signin .mfa-passkey-button { display:flex; width:100%; min-height:44px; justify-content:center; align-items:center; gap:9px; }
+.mfa-method-enrollment { max-width:680px; width:100%; margin-inline:auto; }
+.mfa-passkey-list { padding:0; margin:0; display:grid; gap:12px; list-style:none; }
+.mfa-passkey-list li { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:16px; border:1px solid rgba(148,163,184,.3); border-radius:12px; }
+.mfa-passkey-list strong { overflow-wrap:anywhere; }
+.mfa-passkey-list p { margin:4px 0 0; font-size:13px; }
+.login-passkey .rm-ghost { color:#334155; border:1px solid #cbd5e1; border-radius:12px; background:#fff; font-weight:600; }
+.login-passkey .rm-state-error { color:#b42332; font-size:13px; }
+@media (max-width:600px) { .mfa-method-choices { grid-template-columns:1fr; } .mfa-method-choice { min-height:70px; padding:12px 14px; } .mfa-passkey-list .account-actions { width:100%; } }

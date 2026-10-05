@@ -1,10 +1,12 @@
+import { auditStorage } from "@epl-fellows-platform/db/audit";
 import { TRPCError } from "@trpc/server";
+import { canViewPlatform } from "./platform-access";
 import { eq } from "drizzle-orm";
 import { db, tenants } from "@epl-fellows-platform/db";
 import type { Context } from "../context.js";
 
 export function resolveTenantId(ctx: Context, inputTenantId?: string): string {
-  const isPlatformAdmin = ctx.role === "super_admin";
+  const isPlatformAdmin = canViewPlatform(ctx);
 
   if (isPlatformAdmin) {
     if (!inputTenantId) {
@@ -30,9 +32,11 @@ export async function assertTenantAccess(ctx: Context, tenantId: string) {
     where: eq(tenants.id, resolved),
   });
 
-  if (!tenant || tenant.countryCode === "GLOBAL") {
+  if (!tenant || tenant.countryCode === "GLOBAL" || (ctx.role === "tenant_admin" && !tenant.isActive)) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Country hub not found" });
   }
 
+  const audit = auditStorage.getStore();
+  if (audit) audit.resolvedTenantId = tenant.id;
   return tenant;
 }

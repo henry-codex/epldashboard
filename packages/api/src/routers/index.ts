@@ -1,4 +1,4 @@
-import { protectedProcedure, publicProcedure, router } from "../index";
+import { authenticatedProcedure, protectedProcedure, publicProcedure, router } from "../index";
 import { tenantsRouter } from "./tenants";
 import { usersRouter } from "./users";
 import { fellowsRouter } from "./fellows";
@@ -10,10 +10,13 @@ import { alumniLeadersRouter } from "./alumni-leaders";
 import { alumniExecutivesRouter } from "./alumni-executives";
 import { eventsRouter } from "./events";
 import { platformRouter } from "./platform";
+import { auditRouter } from "./audit";
 import { db, tenants } from "@epl-fellows-platform/db";
 import { eq } from "drizzle-orm";
 
 export const appRouter = router({
+  audit: auditRouter,
+  account: router({ mfaStatus: authenticatedProcedure.query(({ ctx }) => ctx.mfa) }),
   healthCheck: publicProcedure.query(() => {
     return "OK";
   }),
@@ -48,6 +51,7 @@ export const appRouter = router({
 
     return {
       message: "This is private",
+      workspace: ctx.workspace ?? null, capabilities: ctx.capabilities,
       user: ctx.session.user,
       role: ctx.role,
       tenantId: ctx.tenantId,

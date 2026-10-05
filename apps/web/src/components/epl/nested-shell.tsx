@@ -6,6 +6,7 @@ import { useTheme } from "@/hooks/use-theme";
 
 interface Props {
   children: React.ReactNode;
+  accountSettings?: boolean;
   /* Sub-sidebar config */
   backLabel?: string;
   backHref?: string;
@@ -23,6 +24,7 @@ interface Props {
 
 export function NestedShell({
   children,
+  accountSettings = false,
   backLabel,
   backHref,
   sectionTitle,
@@ -38,7 +40,7 @@ export function NestedShell({
   const { theme, toggle } = useTheme();
 
   return (
-    <div className={`epl-shell${theme === "light" ? " epl-light" : ""}`}>
+    <div className={`epl-shell${accountSettings ? " epl-account-shell" : ""}${theme === "light" ? " epl-light" : ""}`}>
       {/* Ambient orbs */}
       <div className="epl-orb" style={{ width: 500, height: 500, top: -120, left: 160,  background: "rgba(59,139,235,0.22)",  zIndex: 0 }} />
       <div className="epl-orb" style={{ width: 400, height: 400, bottom: -60, right: 80,  background: "rgba(46,194,126,0.15)",  zIndex: 0 }} />
@@ -63,7 +65,8 @@ export function NestedShell({
         <div className="epl-main">
           <DashHeader
             title={pageTitle}
-            breadcrumbs={breadcrumbs}
+            breadcrumbs={accountSettings ? [] : breadcrumbs}
+            minimal={accountSettings}
             logoHref={navItems.find((item) => item.key === "overview")?.href ?? backHref ?? "/dashboard"}
             searchPlaceholder={`Search in ${sectionTitle}…`}
             theme={theme}

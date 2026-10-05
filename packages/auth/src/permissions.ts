@@ -15,12 +15,14 @@ export type Permission =
   | "checkins:read"
   | "reports:view"
   | "activity:read"
+  | "audit:read"
   | "alumni:manage"
   | "newsletters:manage"
   | "events:manage";
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   country_admin: [
+    "audit:read",
     "tenants:read",
     "users:manage",
     "fellows:create",
@@ -36,6 +38,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "events:manage",
   ],
   tenant_admin: [
+    "audit:read",
     "tenants:read",
     "users:manage",
     "fellows:create",
@@ -53,6 +56,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "events:manage",
   ],
   super_admin: [
+    "audit:read",
     "tenants:manage",
     "tenants:read",
     "users:manage",

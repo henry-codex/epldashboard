@@ -9,7 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.mjs",
     "db:seed": "tsx src/seed.ts",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -19,6 +19,7 @@
     "@epl-fellows-platform/auth": "workspace:*",
     "@epl-fellows-platform/db": "workspace:*",
     "@epl-fellows-platform/env": "workspace:*",
+    "@epl-fellows-platform/email": "workspace:*",
     "@hono/trpc-server": "^0.4.2",
     "@nestjs/common": "^11.1.17",
     "@nestjs/core": "^11.1.17",

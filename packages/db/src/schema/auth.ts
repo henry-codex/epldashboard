@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index, integer, bigint } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -7,6 +7,15 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
+  totpEnabled: boolean("totp_enabled").default(false).notNull(),
+  emailOtpEnabled: boolean("email_otp_enabled").default(false).notNull(),
+  mfaBackupCodes: text("mfa_backup_codes"),
+  mfaBackupCodesConfirmed: boolean("mfa_backup_codes_confirmed").default(false).notNull(),
+  mfaSecurityChangedAt: timestamp("mfa_security_changed_at").defaultNow().notNull(),
+  mfaEmailLastSentAt: timestamp("mfa_email_last_sent_at"),
+  mfaFailedAttempts: integer("mfa_failed_attempts").default(0).notNull(),
+  mfaLockedUntil: timestamp("mfa_locked_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -26,11 +35,14 @@ export const session = pgTable(
       .notNull(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+    mfaVerifiedAt: timestamp("mfa_verified_at"),
+    mfaVerificationMethod: text("mfa_verification_method"),
+    mfaBrowserId: text("mfa_browser_id"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (table) => [index("session_userId_idx").on(table.userId)],
+  (table) => [index("session_userId_idx").on(table.userId), index("session_mfa_browser_idx").on(table.mfaBrowserId)],
 );
 
 export const account = pgTable(
@@ -77,6 +89,57 @@ export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
 }));
+
+export const twoFactor = pgTable("two_factor", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().unique().references(() => user.id, { onDelete: "cascade" }),
+  secret: text("secret").notNull(),
+  backupCodes: text("backup_codes").notNull(),
+  lastAcceptedTotpStep: bigint("last_accepted_totp_step", { mode: "number" }),
+});
+
+export const mfaBrowser = pgTable("mfa_browser", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  verifiedAt: timestamp("verified_at").notNull(),
+  verificationMethod: text("verification_method").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+}, (table) => [index("mfa_browser_user_idx").on(table.userId)]);
+
+export const passkey = pgTable("passkey", {
+  id: text("id").primaryKey(),
+  name: text("name"),
+  publicKey: text("public_key").notNull(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  credentialID: text("credential_id").notNull().unique(),
+  counter: integer("counter").notNull(),
+  deviceType: text("device_type").notNull(),
+  backedUp: boolean("backed_up").notNull(),
+  transports: text("transports"),
+  createdAt: timestamp("created_at").defaultNow(),
+  aaguid: text("aaguid"),
+}, (table) => [index("passkey_user_idx").on(table.userId)]);
+
+// Browser-bound, purpose-specific challenges. No plaintext OTP or recovery codes.
+export const mfaChallenge = pgTable("mfa_challenge", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  purpose: text("purpose").notNull(),
+  binding: text("binding").notNull(),
+  codeHash: text("code_hash"),
+  data: text("data"),
+  deliveryStatus: text("delivery_status"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => [index("mfa_challenge_user_idx").on(table.userId)]);
+
+export const mfaEmailSend = pgTable("mfa_email_send", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [index("mfa_email_send_user_time_idx").on(table.userId, table.createdAt)]);
 
 export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, {

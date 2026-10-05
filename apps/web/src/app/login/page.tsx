@@ -1,12 +1,7 @@
-"use client";
-
-import { useRouter } from "next/navigation";
 import SignInForm from "@/components/sign-in-form";
-
-export default function LoginPage() {
-  const router = useRouter();
-
-  return (
-    <SignInForm onSwitchToSignUp={() => router.push("/signup")} />
-  );
+import { safeMfaReturnPath } from "@epl-fellows-platform/auth/mfa-policy";
+export const metadata = { title: "Sign in | EPL", robots: { index: false, follow: false }, referrer: "no-referrer" as const };
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ returnTo?: string }> }) {
+  const { returnTo } = await searchParams;
+  return <SignInForm returnTo={safeMfaReturnPath(returnTo)} />;
 }

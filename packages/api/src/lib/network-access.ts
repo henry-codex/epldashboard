@@ -13,10 +13,10 @@ export function canViewNetworkRoster(role: UserRole): boolean {
 }
 
 export function assertNetworkManager(ctx: Context) {
-  if (!isNetworkManager(ctx.role)) {
+  if (!isNetworkManager(ctx.role) || (ctx.role === "tenant_admin" && !ctx.capabilities?.globalOperations)) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "Only country managers can modify network data for this hub",
+      message: "Country or global operations access is required to modify this hub",
     });
   }
 }

@@ -1,131 +1,57 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { IconUserCircle, IconUsers, IconWorld, IconShieldLock, IconSettings, IconStar, IconCalendarEvent } from "@tabler/icons-react";
 import { authClient } from "@/lib/auth-client";
 import { NestedShell } from "@/components/epl/nested-shell";
 import { useHomePath } from "@/hooks/use-home-path";
+import { canAccessSettingsPage, PROFILE_PATH, SECURITY_PATH } from "@/lib/account-settings";
 import type { SubNavItem } from "@/components/epl/sub-sidebar";
-import {
-  IconUserCircle,
-  IconUsers,
-  IconWorld,
-  IconShieldLock,
-  IconSettings,
-  IconStar,
-  IconCalendarEvent,
-} from "@tabler/icons-react";
 
-const TITLE_BY_KEY: Record<string, string> = {
-  profile: "Personal Profile",
-  users: "Users & Roles",
-  countries: "Regional Hubs",
-  executives: "Alumni Board",
-  events: "Events",
-  security: "Security",
-};
+const NAV: SubNavItem[] = [
+  { key: "audit", label: "Audit Log", icon: <IconShieldLock size={18} />, href: "/dashboard/settings/audit" },
+  { key: "profile", label: "My Profile", icon: <IconUserCircle size={18} />, href: PROFILE_PATH },
+  { key: "security", label: "Security", icon: <IconShieldLock size={18} />, href: SECURITY_PATH },
+  { key: "users", label: "Users & Roles", icon: <IconUsers size={18} />, href: "/dashboard/settings/users" },
+  { key: "countries", label: "Regional Hubs", icon: <IconWorld size={18} />, href: "/dashboard/settings/countries" },
+  { key: "executives", label: "Alumni Board", icon: <IconStar size={18} />, href: "/dashboard/settings/executives" },
+  { key: "events", label: "Events", icon: <IconCalendarEvent size={18} />, href: "/dashboard/settings/events" },
+];
 
-function activeKeyFromPath(pathname: string) {
-  if (pathname.includes("/settings/users")) return "users";
-  if (pathname.includes("/settings/countries")) return "countries";
-  if (pathname.includes("/settings/executives")) return "executives";
-  if (pathname.includes("/settings/events")) return "events";
-  if (pathname.includes("/settings/security")) return "security";
-  return "profile";
-}
-
-export default function SettingsSegmentLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function SettingsSegmentLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const { data: session, isPending } = authClient.useSession();
   const home = useHomePath();
-
-  const isPlatformAdmin = home.role === "super_admin";
-
+  const activePage = pathname.split("/settings/")[1]?.split("/")[0] || "profile";
+  const allowed = canAccessSettingsPage(home.role, activePage, home.capabilities);
   useEffect(() => {
     if (!isPending && !session?.user) router.replace("/login");
   }, [isPending, session, router]);
-
   useEffect(() => {
-    if (home.isLoading || isPlatformAdmin) return;
-    if (
-      pathname.includes("/settings/countries") ||
-      pathname.includes("/settings/executives") ||
-      pathname.includes("/settings/events")
-    ) {
-      router.replace("/dashboard/settings/users");
-    }
-  }, [home.isLoading, isPlatformAdmin, pathname, router]);
+    if (!home.isLoading && !home.isError && !allowed) router.replace(PROFILE_PATH);
+  }, [home.isLoading, home.isError, allowed, router]);
 
-  const navItems: SubNavItem[] = useMemo(() => {
-    const items: SubNavItem[] = [
-      { key: "profile", label: "My Profile", icon: <IconUserCircle size={18} />, href: "/dashboard/settings/profile" },
-      { key: "users", label: "Users & Roles", icon: <IconUsers size={18} />, href: "/dashboard/settings/users" },
-    ];
-    if (isPlatformAdmin) {
-      items.push({
-        key: "countries",
-        label: "Regional Hubs",
-        icon: <IconWorld size={18} />,
-        href: "/dashboard/settings/countries",
-      });
-      items.push({
-        key: "executives",
-        label: "Alumni Board",
-        icon: <IconStar size={18} />,
-        href: "/dashboard/settings/executives",
-      });
-      items.push({
-        key: "events",
-        label: "Events",
-        icon: <IconCalendarEvent size={18} />,
-        href: "/dashboard/settings/events",
-      });
-    }
-    items.push({
-      key: "security",
-      label: "Security",
-      icon: <IconShieldLock size={18} />,
-      href: "/dashboard/settings/security",
-    });
-    return items;
-  }, [isPlatformAdmin]);
+  if (isPending || !session?.user || home.isLoading) return <p className="rm-state" role="status">Loading account settings…</p>;
+  if (home.isError) return <div className="rm-state"><p role="alert">Could not load account access.</p><button type="button" className="rm-ghost" onClick={() => { void home.refetch(); }}>Try again</button></div>;
+  if (!allowed) return null;
 
-  const activePage = useMemo(() => activeKeyFromPath(pathname), [pathname]);
-  const pageTitle = TITLE_BY_KEY[activePage] ?? "Settings";
-
-  if (isPending || !session?.user || home.isLoading) return null;
-
-  const user = {
-    name: session.user.name ?? undefined,
-    email: session.user.email ?? undefined,
-    image: session.user.image ?? undefined,
-  };
-
+  const navItems = NAV.filter((item) => canAccessSettingsPage(home.role, item.key, home.capabilities));
   return (
     <NestedShell
-      backLabel={home.tenant ? `Back to ${home.tenant.name}` : "Back to Dashboard"}
+      accountSettings
+      backLabel={home.tenant ? "Back to " + home.tenant.name : "Back to Dashboard"}
       backHref={home.path}
       sectionTitle="Settings"
       sectionIcon={<IconSettings size={18} />}
-      sectionSubtitle={
-        home.tenant ? `${home.tenant.name} administration` : "Platform administration"
-      }
+      sectionSubtitle="Your account"
       accent={home.tenant?.color ?? "#4150A3"}
       navItems={navItems}
       activePage={activePage}
-      pageTitle={pageTitle}
-      breadcrumbs={[
-        { label: home.tenant?.name ?? "Dashboard", href: home.path },
-        { label: "Settings" },
-      ]}
-      user={user}
-    >
-      {children}
-    </NestedShell>
+      pageTitle={NAV.find((item) => item.key === activePage)?.label ?? "Settings"}
+      breadcrumbs={[{ label: home.tenant?.name ?? "Dashboard", href: home.path }, { label: "Settings" }]}
+      user={{ name: session.user.name, email: session.user.email, image: session.user.image ?? undefined }}
+    >{children}</NestedShell>
   );
 }

@@ -348,7 +348,7 @@ export default function GlobalFellowsDashboard() {
   const home = useHomePath();
   const networkQuery = useQuery({
     ...trpc.platform.network.queryOptions(),
-    enabled: Boolean(session?.user) && !home.isLoading && home.role === "super_admin",
+    enabled: Boolean(session?.user) && !home.isLoading && home.capabilities.platformView,
   });
 
   useEffect(() => {

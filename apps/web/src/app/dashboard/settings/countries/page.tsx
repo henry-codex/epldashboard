@@ -31,7 +31,6 @@ const EMPTY_ADMIN = {
   color: "#4150A3",
   adminName: "",
   adminEmail: "",
-  adminPassword: "",
 };
 
 function HubFlag({
@@ -98,9 +97,11 @@ export default function CountriesSettingsPage() {
   }, []);
 
   const createMutation = useMutation(
-    trpc.tenants.createWithAdmin.mutationOptions({
+    trpc.tenants.createWithInvitation.mutationOptions({
       onSuccess: (data) => {
-        toast.success(`${data.tenant.name} hub ready — ${data.admin.email} can sign in`);
+        if (data.invitation.deliveryStatus === "sent") toast.success(`${data.tenant.name} created. The invitation email was accepted by the mail server.`);
+        else toast.error(`${data.tenant.name} created, but invitation email sending failed. Open Users & invitations to resend.`);
+        void queryClient.invalidateQueries({ queryKey: trpc.users.listInvitations.queryKey() });
         void queryClient.invalidateQueries({ queryKey: trpc.tenants.list.queryKey() });
         void queryClient.invalidateQueries({ queryKey: trpc.users.list.queryKey() });
         resetAndClose();
@@ -183,12 +184,8 @@ export default function CountriesSettingsPage() {
       toast.error("Pick a country from the list");
       return;
     }
-    if (!form.adminName.trim() || !form.adminEmail.trim() || !form.adminPassword) {
-      toast.error("First admin name, email, and password are required");
-      return;
-    }
-    if (form.adminPassword.length < 8) {
-      toast.error("Admin password must be at least 8 characters");
+    if (!form.adminName.trim() || form.adminName.trim().length > 100 || !form.adminEmail.trim()) {
+      toast.error("Provide an admin name of 1–100 characters and an email address.");
       return;
     }
     createMutation.mutate({
@@ -199,7 +196,6 @@ export default function CountriesSettingsPage() {
       color: form.color,
       adminName: form.adminName.trim(),
       adminEmail: form.adminEmail.trim(),
-      adminPassword: form.adminPassword,
     });
   }
 
@@ -215,7 +211,7 @@ export default function CountriesSettingsPage() {
         disabled={createMutation.isPending || !selected}
       >
         {createMutation.isPending ? <IconLoader2 size={15} className="animate-spin" /> : <IconCheck size={15} />}
-        Create hub & admin
+        Create hub & send invitation
       </button>
     </div>
   );
@@ -227,7 +223,7 @@ export default function CountriesSettingsPage() {
           <p className="rm-kicker">Settings · Regional</p>
           <h1 className="rm-title">Regional hubs</h1>
           <p className="rm-sub">
-            Partner nations with a country admin who can sign in from day one.
+            Create regional hubs and invite their first country administrator.
           </p>
         </div>
         <div className="rm-header-actions">
@@ -273,7 +269,7 @@ export default function CountriesSettingsPage() {
             </div>
             <h3>No hubs yet</h3>
             <p>
-              Create the first partner nation and assign a country admin — both land in Postgres in one step.
+              Create your first hub and email an invitation to its country administrator.
             </p>
             <button type="button" className="rm-primary" onClick={() => setPanelOpen(true)}>
               <IconPlus size={16} /> Create first hub
@@ -435,12 +431,13 @@ export default function CountriesSettingsPage() {
               <span>First admin</span>
             </div>
             <p className="rm-panel-hint">
-              This person gets the Country Admin role and can sign in immediately.
+              This person receives an email invitation to choose their own password and accept the Country Admin role.
             </p>
 
             <label className="epl-slide-field">
               <span>Full name</span>
               <input
+                maxLength={100}
                 value={form.adminName}
                 onChange={(e) => setField("adminName", e.target.value)}
                 placeholder="e.g. Ama Mensah"
@@ -459,18 +456,6 @@ export default function CountriesSettingsPage() {
               />
             </label>
 
-            <label className="epl-slide-field">
-              <span>Temporary password</span>
-              <input
-                type="password"
-                value={form.adminPassword}
-                onChange={(e) => setField("adminPassword", e.target.value)}
-                placeholder="Min. 8 characters"
-                minLength={8}
-                required
-                autoComplete="new-password"
-              />
-            </label>
           </div>
         </form>
       </SlidePanel>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { auditSavepoint } from "@epl-fellows-platform/db/audit";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import {
@@ -1117,8 +1118,10 @@ export const fellowsRouter = router({
 
       for (const row of prepared) {
         const rowNum = row.rowNum;
+        const countsBeforeRow = { created, updated };
 
         try {
+          await auditSavepoint(async () => {
           const canonicalInstitution = row.rawInstitution
             ? institutionCanonical.get(row.rawInstitution)!
             : null;
@@ -1152,7 +1155,7 @@ export const fellowsRouter = router({
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : "Invalid program";
             errors.push({ row: rowNum, message });
-            continue;
+            return;
           }
 
           let existing = null as typeof fellows.$inferSelect | null | undefined;
@@ -1252,7 +1255,9 @@ export const fellowsRouter = router({
             if (row.isMcf) acc.isMcf = true;
             cohortAcc.set(row.cohortYear, acc);
           }
+          });
         } catch (err: unknown) {
+          created = countsBeforeRow.created; updated = countsBeforeRow.updated;
           const message = err instanceof Error ? err.message : "Import failed";
           errors.push({ row: rowNum, message });
         }

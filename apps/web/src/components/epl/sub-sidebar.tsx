@@ -9,9 +9,11 @@ import {
   IconLogout,
   IconUser,
 } from "@tabler/icons-react";
-import { useParams, usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { useHomePath } from "@/hooks/use-home-path";
+import { PROFILE_PATH } from "@/lib/account-settings";
+import { queryClient } from "@/utils/trpc";
+import { toast } from "sonner";
 import { userAvatarUrl } from "@/lib/user-avatar";
 
 export interface SubNavItem {
@@ -34,19 +36,6 @@ interface Props {
   user?: { name?: string; email?: string; image?: string } | null;
 }
 
-function profileSettingsHref(
-  pathname: string | null,
-  params: Record<string, string | string[] | undefined>,
-  role?: string | null,
-) {
-  if (role === "super_admin") return "/dashboard/settings/profile";
-  const hubId = typeof params?.id === "string" ? params.id : "";
-  if (pathname?.includes("/dashboard/countries/") && hubId) {
-    return `/dashboard/countries/${hubId}/settings/profile`;
-  }
-  return "/dashboard/settings/profile";
-}
-
 export function SubSidebar({
   backLabel,
   backHref,
@@ -59,9 +48,6 @@ export function SubSidebar({
   user,
 }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
-  const params = useParams();
-  const home = useHomePath();
   const [collapsed, setCollapsed] = useState(false);
   const [ready, setReady] = useState(false);
 
@@ -89,14 +75,18 @@ export function SubSidebar({
   }
 
   async function handleSignOut() {
-    await authClient.signOut();
-    router.replace("/login");
+    try {
+      const result = await authClient.signOut();
+      if (result.error) { toast.error("Could not sign out. Please try again."); return; }
+      queryClient.clear();
+      router.replace("/login");
+    } catch { toast.error("Could not reach the server. Please try again."); }
   }
 
   const displayName = user?.name?.trim() || "Admin";
   const email = user?.email ?? "";
   const avatarSrc = user ? userAvatarUrl(user, 96) : "";
-  const settingsHref = profileSettingsHref(pathname, params, home.role);
+  const settingsHref = PROFILE_PATH;
   const showBack = Boolean(backLabel && backHref);
 
   const collapseBtn = (
