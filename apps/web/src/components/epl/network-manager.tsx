@@ -35,6 +35,7 @@ import { SlideToggle } from "@/components/epl/slide-toggle";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
 import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
+import { IMPORT_FILE_ACCEPT, readImportFile } from "@/lib/import-file";
 import { useTheme } from "@/hooks/use-theme";
 
 const PAGE_SIZE = 20;
@@ -550,8 +551,12 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
         toast.success(
           `Import complete — ${result.created} created, ${result.updated} updated${partnerNote}${cohortNote}`,
         );
-        if (result.errors.length) {
-          toast.error(`${result.errors.length} row(s) had errors`);
+        const firstError = result.errors[0];
+        if (firstError) {
+          const more = result.errors.length - 1;
+          toast.error(`${result.errors.length} row(s) had errors`, {
+            description: `Row ${firstError.row}: ${firstError.message}${more > 0 ? ` (and ${more} more)` : ""}`,
+          });
         }
         await invalidate();
       },
@@ -924,19 +929,21 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
     link.download = `EPL-Country-Network-Template.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    toast.success("Network template downloaded — fill and Import CSV");
+    toast.success("Network template downloaded — fill and import it (CSV or Excel)");
   }
 
-  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      importMutation.mutate({ tenantId, csv: text });
-    };
-    reader.readAsText(file);
+    let text: string;
+    try {
+      text = await readImportFile(file);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't read this file");
+      return;
+    }
+    importMutation.mutate({ tenantId, csv: text });
   }
 
   function handleFieldSubmit(e: React.FormEvent) {
@@ -994,7 +1001,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
               disabled={importMutation.isPending}
             >
               {importMutation.isPending ? <IconLoader2 size={16} className="animate-spin" /> : <IconUpload size={16} />}
-              Import CSV
+              Import CSV / Excel
             </button>
             <button type="button" className="rm-ghost" onClick={handleExport} disabled={exportQuery.isFetching}>
               {exportQuery.isFetching ? <IconLoader2 size={16} className="animate-spin" /> : <IconDownload size={16} />}
@@ -1017,7 +1024,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
               Clear all
             </button>
           </div>
-          <input ref={fileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleImportFile} />
+          <input ref={fileInputRef} type="file" accept={IMPORT_FILE_ACCEPT} hidden onChange={handleImportFile} />
         </div>
       )}
 
@@ -1119,7 +1126,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
           title={statusFilter === "" || statusFilter === "current" ? "No fellows yet" : "No fellows match this filter"}
           description={
             statusFilter === "" || statusFilter === "current"
-              ? `Add fellows manually, or download the Network template and Import CSV.`
+              ? `Add fellows manually, or download the Network template and import it as CSV or Excel.`
               : "Try a different status filter or search term."
           }
           accent={accent}

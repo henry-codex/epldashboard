@@ -197,15 +197,7 @@ export function CohortsTimeline({
               >
                 {cohort.statusLabel}
               </span>
-              {cohort.isVirtual ? (
-                <span className="nm-status-pill is-inactive">Draft · from Network</span>
-              ) : cohort.dataSource === "manual" ? (
-                <span className="nm-status-pill is-inactive">Manual record</span>
-              ) : cohort.dataSource === "hybrid" ? (
-                <span className="nm-status-pill is-inactive">Manual + live</span>
-              ) : (
-                <span className="nm-status-pill is-inactive">Live from Network</span>
-              )}
+              {cohort.isVirtual && <span className="nm-status-pill is-inactive">Draft · from Network</span>}
             </div>
             <p style={{ margin: 0, fontSize: 13, color: "var(--emuted)", fontFamily: "var(--font)", lineHeight: 1.5 }}>
               {cohortSummary(cohort)}

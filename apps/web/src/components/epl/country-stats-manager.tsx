@@ -18,13 +18,18 @@ import {
   IconHome2,
   IconAward,
   IconTrendingDown,
+  IconTrash,
+  IconCalculator,
 } from "@tabler/icons-react";
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
 import { SlideToggle } from "@/components/epl/slide-toggle";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
 import { RowActionsMenu } from "@/components/epl/row-actions-menu";
+import { McfStatsPanel, type McfStatsRow } from "@/components/epl/mcf-stats-panel";
+import { useConfirm } from "@/components/epl/confirm-dialog";
 import { queryClient, trpc } from "@/utils/trpc";
+import { IMPORT_FILE_ACCEPT, readImportFile } from "@/lib/import-file";
 
 type Props = {
   tenantId: string;
@@ -106,6 +111,22 @@ const STATUSES = [
   { value: "completed", label: "Completed" },
 ] as const;
 
+// Reads the picked CSV or Excel file (preferring the named workbook tab) and
+// clears the input so the same file can be picked again; null if unusable.
+async function readSelectedFile(e: React.ChangeEvent<HTMLInputElement>, preferredSheets: string[]) {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (!file) return null;
+  try {
+    const text = await readImportFile(file, { preferredSheets });
+    if (text.trim()) return text;
+    toast.error("File is empty");
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : "Couldn't read this file");
+  }
+  return null;
+}
+
 // Grouped in the same order as the view modal — Recruitment together,
 // Demographics together — so a super-header can span each block cleanly.
 // "To be recruited" lives in the edit form and the detail modal only — most
@@ -113,10 +134,9 @@ const STATUSES = [
 const TABLE_COLUMNS =
   "1.3fr 0.6fr 0.8fr 0.9fr 0.6fr 0.6fr 0.6fr 0.6fr 0.8fr 0.9fr 0.5fr";
 
-// Same shape minus the actions column — MCF figures are import-only, since
-// they're the Foundation's reported numbers rather than the hub's own.
+// All Stats layout, with MCF recruited and the Foundation's target side by side.
 const MCF_TABLE_COLUMNS =
-  "1.3fr 0.6fr 0.9fr 0.9fr 0.6fr 0.6fr 0.6fr 0.6fr 0.8fr 0.9fr";
+  "1.3fr 0.6fr 0.9fr 1fr 0.9fr 0.6fr 0.6fr 0.6fr 0.6fr 0.8fr 0.9fr 0.5fr";
 
 function dash(value: number | null | undefined) {
   return value == null ? "—" : String(value);
@@ -209,6 +229,29 @@ function AttritionChip({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** The Foundation's recruitment target, with how much of it the cohort reached. */
+function McfTargetCell({ recruited, target }: { recruited: number | null; target: number | null }) {
+  const reached = target != null && target > 0 && recruited != null ? Math.round((recruited / target) * 100) : null;
+  const color = reached == null ? "var(--emuted)" : reached >= 100 ? "#2EC27E" : reached >= 80 ? "#E8A020" : "#E5484D";
+  return (
+    <span
+      className={cellClass(target)}
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, fontFamily: "var(--font)" }}
+      title={reached != null ? `${recruited} of ${target} recruited (${reached}%)` : undefined}
+    >
+      <span style={{ fontSize: 14, color: "var(--ewhite)" }}>{dash(target)}</span>
+      {reached != null && (
+        <>
+          <span style={{ width: 56, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+            <span style={{ display: "block", height: "100%", width: `${Math.min(reached, 100)}%`, background: color }} />
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 700, color }}>{reached}% reached</span>
+        </>
+      )}
+    </span>
+  );
+}
+
 function ViewSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -262,21 +305,61 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
     }),
   );
 
-  function handleImportMcfFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  async function handleImportMcfFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const text = await readSelectedFile(e, ["MCF_Stats"]);
+    if (text) importMcfMutation.mutate({ tenantId, csv: text });
+  }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : "";
-      if (!text.trim()) {
-        toast.error("CSV file is empty");
-        return;
-      }
-      importMcfMutation.mutate({ tenantId, csv: text });
-    };
-    reader.readAsText(file);
+  const confirm = useConfirm();
+  const [mcfPanelOpen, setMcfPanelOpen] = useState(false);
+  const [mcfEditing, setMcfEditing] = useState<McfStatsRow | null>(null);
+
+  function openMcfPanel(row: McfStatsRow | null) {
+    setMcfEditing(row);
+    setMcfPanelOpen(true);
+  }
+
+  const deleteMcfMutation = useMutation(
+    trpc.cohorts.deleteMcfStats.mutationOptions({
+      onSuccess: async () => {
+        toast.success("MCF stats removed");
+        await invalidate();
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  const calculateMcfMutation = useMutation(
+    trpc.cohorts.calculateMcfFromRoster.mutationOptions({
+      onSuccess: async (result) => {
+        toast.success(`MCF stats calculated from roster: ${result.created} added, ${result.updated} updated`);
+        if (result.warnings.length > 0) toast.warning(result.warnings[0]!);
+        await invalidate();
+      },
+      onError: (err) => toast.error(err.message),
+    }),
+  );
+
+  async function handleCalculateMcf() {
+    const ok = await confirm({
+      title: "Calculate MCF stats from the Network roster?",
+      message:
+        "Counts MCF fellows on this hub's roster — those marked MCF, plus everyone in cohorts marked " +
+        "'Mastercard Foundation funded' — per cohort year, and fills the MCF table. " +
+        "Figures already here for those cohorts are replaced; 'To be recruited' is kept.",
+      confirmLabel: "Calculate",
+    });
+    if (ok) calculateMcfMutation.mutate({ tenantId });
+  }
+
+  async function handleDeleteMcf(row: McfStatsRow) {
+    const ok = await confirm({
+      title: `Remove MCF stats for ${row.label}?`,
+      message: "Only the Foundation's figures for this cohort are removed; the cohort and its All Stats numbers stay.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (ok) deleteMcfMutation.mutate({ tenantId, id: row.id });
   }
 
   const createMutation = useMutation(
@@ -301,21 +384,9 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
     }),
   );
 
-  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : "";
-      if (!text.trim()) {
-        toast.error("CSV file is empty");
-        return;
-      }
-      importStatsMutation.mutate({ tenantId, csv: text });
-    };
-    reader.readAsText(file);
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const text = await readSelectedFile(e, ["All Stats"]);
+    if (text) importStatsMutation.mutate({ tenantId, csv: text });
   }
 
   function closePanel() {
@@ -447,15 +518,28 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
             {importStatsMutation.isPending ? <IconLoader2 size={16} className="animate-spin" /> : <IconUpload size={16} />}
             Import Country Stats
           </button>
-          <input ref={fileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleImportFile} />
+          <input ref={fileInputRef} type="file" accept={IMPORT_FILE_ACCEPT} hidden onChange={handleImportFile} />
         </div>
       )}
 
       {!readOnly && tab === "mcf" && (
         <div className="nm-toolbar gc">
+          <button type="button" className="rm-primary" onClick={() => openMcfPanel(null)}>
+            <IconPlus size={16} /> Add MCF stats
+          </button>
           <button
             type="button"
-            className="rm-primary"
+            className="rm-ghost"
+            onClick={() => void handleCalculateMcf()}
+            disabled={calculateMcfMutation.isPending}
+            title="Count the MCF-funded fellows on the Network roster, per cohort year"
+          >
+            {calculateMcfMutation.isPending ? <IconLoader2 size={16} className="animate-spin" /> : <IconCalculator size={16} />}
+            Calculate from roster
+          </button>
+          <button
+            type="button"
+            className="rm-ghost"
             onClick={() => mcfFileInputRef.current?.click()}
             disabled={importMcfMutation.isPending}
             title="Upload the workbook's MCF_Stats sheet — only this hub's own country block is read"
@@ -463,7 +547,7 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
             {importMcfMutation.isPending ? <IconLoader2 size={16} className="animate-spin" /> : <IconUpload size={16} />}
             Import MCF Stats
           </button>
-          <input ref={mcfFileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleImportMcfFile} />
+          <input ref={mcfFileInputRef} type="file" accept={IMPORT_FILE_ACCEPT} hidden onChange={handleImportMcfFile} />
         </div>
       )}
 
@@ -478,7 +562,7 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
             description={
               readOnly
                 ? "The Foundation's own reported figures for this hub will appear here once imported."
-                : `Import ${hubName}'s block from the workbook's MCF_Stats sheet. Cohorts must already exist under All Stats.`
+                : `Calculate them from the MCF fellows on ${hubName}'s Network roster, add a cohort's figures by hand, or import the workbook's MCF_Stats sheet. Cohorts must already exist under All Stats.`
             }
             accent={accent}
           />
@@ -493,11 +577,11 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
               </div>
             </div>
 
-            <div style={{ minWidth: 1120 }}>
+            <div style={{ minWidth: 1240 }}>
               <div className="cs-group-row" style={{ display: "grid", gridTemplateColumns: MCF_TABLE_COLUMNS, gap: 10 }}>
                 <span />
                 <span />
-                <span className="cs-group-label" style={{ gridColumn: "span 2" }}>Recruitment</span>
+                <span className="cs-group-label" style={{ gridColumn: "span 3" }}>Recruitment</span>
                 <span className="cs-group-label" style={{ gridColumn: "span 5" }}>Demographics</span>
                 <span className="cs-group-label">Attrition</span>
               </div>
@@ -519,6 +603,7 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
                 <span>Cohort</span>
                 <span style={{ textAlign: "center" }}>Year</span>
                 <span style={{ textAlign: "center" }}>MCF recruited</span>
+                <span style={{ textAlign: "center" }}>Target</span>
                 <span style={{ textAlign: "center" }}>Graduated</span>
                 <span style={{ textAlign: "center" }}>Male</span>
                 <span style={{ textAlign: "center" }}>Female</span>
@@ -526,6 +611,7 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
                 <span style={{ textAlign: "center" }}>IDPs</span>
                 <span style={{ textAlign: "center" }}>Scholars</span>
                 <span style={{ textAlign: "center" }}>Rate</span>
+                <span />
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
@@ -566,6 +652,7 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
                           </span>
                         )}
                       </span>
+                      <McfTargetCell recruited={row.startedCount} target={row.toBeRecruitedCount} />
                       <span className={cellClass(row.graduatedCount)} style={{ fontSize: 14, color: "var(--ewhite)", fontFamily: "var(--font)", textAlign: "center" }}>
                         {dash(row.graduatedCount)}
                       </span>
@@ -588,6 +675,18 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
                         <span className={`cs-attrition-pill${row.attritionRatePercent == null ? " is-empty" : ""}`} style={{ fontSize: 12, fontFamily: "var(--font)" }}>
                           {pct(row.attritionRatePercent)}
                         </span>
+                      </span>
+                      <span style={{ display: "flex", justifyContent: "center" }}>
+                        {!readOnly && (
+                          <RowActionsMenu
+                            open={actionMenuId === `mcf:${row.id}`}
+                            onOpenChange={(open) => setActionMenuId(open ? `mcf:${row.id}` : null)}
+                            items={[
+                              { label: "Edit", icon: <IconPencil size={15} />, onSelect: () => openMcfPanel(row) },
+                              { label: "Remove", icon: <IconTrash size={15} />, onSelect: () => void handleDeleteMcf(row) },
+                            ]}
+                          />
+                        )}
                       </span>
                     </div>
                   );
@@ -810,6 +909,19 @@ export function CountryStatsManager({ tenantId, hubName, accent, readOnly = fals
           </div>
         )}
       </SlidePanel>
+
+      {!readOnly && (
+        <McfStatsPanel
+          open={mcfPanelOpen}
+          onClose={() => setMcfPanelOpen(false)}
+          onSaved={invalidate}
+          tenantId={tenantId}
+          hubName={hubName}
+          cohorts={cohorts.flatMap((c) => (c.id ? [{ id: c.id, label: c.label, cohortYear: c.cohortYear }] : []))}
+          takenCohortIds={new Set(mcfRows.map((row) => row.cohortId))}
+          editing={mcfEditing}
+        />
+      )}
 
       {!readOnly && (
         <SlidePanel

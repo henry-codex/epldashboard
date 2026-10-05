@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { IconShieldLock, IconUserCircle, IconUsers } from "@tabler/icons-react";
+import { IconDatabaseX, IconShieldLock, IconUserCircle, IconUsers } from "@tabler/icons-react";
 
 type Props = {
   hubId: string;
-  activeTab: "users" | "profile";
+  activeTab: "users" | "profile" | "data";
   accent: string;
   canManageUsers: boolean;
   children: React.ReactNode;
@@ -19,6 +19,7 @@ export function CountrySettingsShell({ hubId, activeTab, accent, canManageUsers,
       ? [{ key: "users" as const, label: "Country managers", hint: "Invite country administrators", icon: <IconUsers size={18} /> }]
       : []),
     { key: "profile" as const, label: "My profile", hint: "Your profile and account security", icon: <IconUserCircle size={18} /> },
+    { key: "data" as const, label: "Clear hub data", hint: "Delete all of this hub's records", icon: <IconDatabaseX size={18} /> },
   ];
 
   return (

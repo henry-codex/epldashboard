@@ -31,6 +31,8 @@ type HubView = {
   fellows: number;
   incomingFellows: number;
   alumniLeaders: number;
+  /** Records on the Alumni Leaders page — not the same as alumni (graduates). */
+  featuredLeaders: number;
   totalNetwork: number;
   institutions: number;
   activePrograms: number;
@@ -548,12 +550,12 @@ function CountryDashboard({ hub }: { hub: HubView }) {
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ewhite)", fontFamily: "var(--font)" }}>Alumni Leaders</div>
             <span style={{ fontSize: 10, color: "var(--emuted)", fontFamily: "var(--font)" }}>{hub.totalNetwork} in network</span>
           </div>
-          {hub.alumniLeaders === 0 ? (
+          {hub.featuredLeaders === 0 && hub.representatives === 0 ? (
             <EmptyPanel title="No featured leaders" message="Add alumni leaders from the Alumni Leaders page." />
           ) : (
             <>
               <p style={{ margin: 0, fontSize: 12, color: "var(--emuted)", lineHeight: 1.5, fontFamily: "var(--font)" }}>
-                {hub.alumniLeaders} featured leader{hub.alumniLeaders === 1 ? "" : "s"}
+                {hub.featuredLeaders} featured leader{hub.featuredLeaders === 1 ? "" : "s"}
                 {hub.representatives > 0 ? ` · ${hub.representatives} representative${hub.representatives === 1 ? "" : "s"}` : ""}.
               </p>
               <Link href={`/dashboard/countries/${hub.id}/alumni` as never} className="rm-ghost" style={{ alignSelf: "flex-start", fontSize: 12 }}>
@@ -575,6 +577,7 @@ function fromMock(country: CountryData, id: string): HubView {
     fellows: country.fellows,
     incomingFellows: 0,
     alumniLeaders: country.alumni,
+    featuredLeaders: 0,
     totalNetwork: country.fellows + country.alumni,
     institutions: country.institutions,
     activePrograms: country.activePrograms,
@@ -615,6 +618,7 @@ function emptyFromLive(live: {
     fellows: 0,
     incomingFellows: 0,
     alumniLeaders: 0,
+    featuredLeaders: 0,
     totalNetwork: 0,
     institutions: 0,
     activePrograms: 0,
@@ -724,6 +728,7 @@ function buildLiveHub(
     fellows,
     incomingFellows,
     alumniLeaders: alumni,
+    featuredLeaders: data.alumniLeaders?.activeLeaders ?? 0,
     totalNetwork,
     institutions: data.partners?.activePartners ?? 0,
     activePrograms: data.programsAgg?.activePrograms ?? programItems.filter((p) => p.status === "active").length,

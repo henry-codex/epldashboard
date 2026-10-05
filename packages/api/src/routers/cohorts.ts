@@ -8,10 +8,14 @@ import { assertNetworkManager, canViewNetworkRoster } from "../lib/network-acces
 import { assertTenantProgram } from "../lib/program-access.js";
 import { mergedCohortStats, parseCohortNumber } from "../lib/cohort-stats.js";
 import { parseCsv, serializeCsv } from "../lib/csv.js";
+import { mcfStatsFromRoster } from "../lib/mcf-from-roster.js";
 import { FELLOW_STATUSES, type FellowStatus } from "../lib/fellow-status.js";
 import { parseCountryStatsSheet, detectStatsSheetKind } from "@epl-fellows-platform/db/lib/country-stats-import";
 
 const fellowStatusSchema = z.enum(FELLOW_STATUSES);
+// Blank form fields arrive as null: "not reported", distinct from a real zero.
+const mcfCount = z.number().int().min(0).nullable();
+const mcfPercent = z.number().int().min(0).max(100).nullable();
 
 const COHORT_MEMBER_HEADERS = [
   "firstName",
@@ -682,7 +686,8 @@ export const cohortsRouter = router({
           }
 
           try {
-            await assertTenantProgram(tenantId, payload.program);
+            // Store the hub's own spelling of the program title.
+            payload.program = (await assertTenantProgram(tenantId, payload.program)).title;
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : "Invalid program";
             errors.push({ row: rowNum, message });
@@ -979,6 +984,146 @@ export const cohortsRouter = router({
       }
 
       return { created, updated, warnings };
+    }),
+
+  // Hand-entered MCF figures for one cohort — the same row the MCF_Stats
+  // import writes, so either path can create it and the other can update it.
+  saveMcfStats: protectedProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        cohortId: z.string().uuid(),
+        startedCount: mcfCount,
+        graduatedCount: mcfCount,
+        toBeRecruitedCount: mcfCount,
+        maleCount: mcfCount,
+        femaleCount: mcfCount,
+        pwdCount: mcfCount,
+        idpCount: mcfCount,
+        scholarCount: mcfCount,
+        attritionRatePercent: mcfPercent,
+        attritionMale: mcfPercent,
+        attritionFemale: mcfPercent,
+        attritionPwd: mcfPercent,
+        attritionIdp: mcfPercent,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+      const cohort = await loadCohort(tenantId, input.cohortId);
+
+      const { tenantId: _tenantId, cohortId: _cohortId, ...values } = input;
+      const existing = await db.query.hubCohortMcfStats.findFirst({
+        where: and(eq(hubCohortMcfStats.tenantId, tenantId), eq(hubCohortMcfStats.cohortId, cohort.id)),
+      });
+      if (existing) {
+        await db
+          .update(hubCohortMcfStats)
+          .set({ ...values, updatedAt: new Date() })
+          .where(eq(hubCohortMcfStats.id, existing.id));
+      } else {
+        await db.insert(hubCohortMcfStats).values({ tenantId, cohortId: cohort.id, ...values });
+      }
+
+      // Same rule as the import: having MCF figures marks the cohort as MCF-funded.
+      if (!cohort.isMcf) {
+        await db.update(hubCohorts).set({ isMcf: true }).where(eq(hubCohorts.id, cohort.id));
+      }
+
+      return { created: !existing };
+    }),
+
+  // Fills MCF Stats from the Network roster's MCF-funded fellows, for hubs
+  // whose MCF_Stats sheet doesn't exist or doesn't fit the import. Rows can
+  // still be hand-edited afterwards; "to be recruited" is never touched.
+  calculateMcfFromRoster: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const hubCohortRows = await db.query.hubCohorts.findMany({ where: eq(hubCohorts.tenantId, tenantId) });
+      const cohortByYear = new Map(hubCohortRows.filter((c) => c.cohortYear != null).map((c) => [c.cohortYear!, c]));
+      // Funding is often recorded per cohort rather than per person, so a
+      // fellow counts as MCF if marked so, or if their whole cohort is.
+      const mcfCohortYears = new Set(hubCohortRows.filter((c) => c.isMcf && c.cohortYear != null).map((c) => c.cohortYear!));
+
+      const roster = await db
+        .select({
+          cohortYear: fellows.cohortYear,
+          status: fellows.status,
+          gender: fellows.gender,
+          isMcf: fellows.isMcf,
+          customFields: fellows.customFields,
+        })
+        .from(fellows)
+        .where(eq(fellows.tenantId, tenantId));
+      const mcfRoster = roster
+        .map((row) => ({
+          ...row,
+          isMcf: Boolean(row.isMcf) || (row.cohortYear != null && mcfCohortYears.has(row.cohortYear)),
+          customFields: (row.customFields ?? {}) as Record<string, unknown>,
+        }))
+        .filter((row) => row.isMcf);
+      const statsByYear = mcfStatsFromRoster(mcfRoster);
+      if (statsByYear.size === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Nothing on the Network roster says who is MCF-funded. Either switch on 'Mastercard Foundation funded' for the MCF cohorts " +
+            "(All Stats → Edit), or import the roster with an 'MCF' Yes/No column, then calculate again.",
+        });
+      }
+      const existingMcf = await db.query.hubCohortMcfStats.findMany({ where: eq(hubCohortMcfStats.tenantId, tenantId) });
+      const mcfByCohortId = new Map(existingMcf.map((row) => [row.cohortId, row]));
+
+      let created = 0;
+      let updated = 0;
+      const skippedYears: number[] = [];
+      for (const [year, values] of [...statsByYear].sort(([a], [b]) => a - b)) {
+        const cohort = cohortByYear.get(year);
+        if (!cohort) {
+          skippedYears.push(year);
+          continue;
+        }
+        const existing = mcfByCohortId.get(cohort.id);
+        if (existing) {
+          await db.update(hubCohortMcfStats).set({ ...values, updatedAt: new Date() }).where(eq(hubCohortMcfStats.id, existing.id));
+          updated += 1;
+        } else {
+          await db.insert(hubCohortMcfStats).values({ tenantId, cohortId: cohort.id, ...values });
+          created += 1;
+        }
+        if (!cohort.isMcf) {
+          await db.update(hubCohorts).set({ isMcf: true }).where(eq(hubCohorts.id, cohort.id));
+        }
+      }
+
+      const warnings =
+        skippedYears.length > 0
+          ? [`No cohort for ${skippedYears.join(", ")} under All Stats, so those MCF fellows weren't counted. Add the cohort, then calculate again.`]
+          : [];
+      return { created, updated, fellowsCounted: mcfRoster.filter((row) => row.cohortYear != null).length, warnings };
+    }),
+
+  deleteMcfStats: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid(), id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const deleted = await db
+        .delete(hubCohortMcfStats)
+        .where(and(eq(hubCohortMcfStats.id, input.id), eq(hubCohortMcfStats.tenantId, tenantId)))
+        .returning();
+      if (deleted.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "MCF stats not found" });
+      }
+      return { ok: true };
     }),
 
   exportMembers: protectedProcedure

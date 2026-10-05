@@ -10,8 +10,9 @@ import { useHomePath } from "@/hooks/use-home-path";
 import { canManageHubUsers, isNetworkManager } from "@/lib/network-access";
 import type { UserRole } from "@epl-fellows-platform/auth/permissions";
 
-function activeTabFromPath(pathname: string): "users" | "profile" {
+function activeTabFromPath(pathname: string): "users" | "profile" | "data" {
   if (pathname.includes("/settings/users")) return "users";
+  if (pathname.includes("/settings/data")) return "data";
   return "profile";
 }
 
@@ -26,7 +27,7 @@ export default function CountrySettingsLayout({ children }: { children: React.Re
   const isManager = isNetworkManager(role);
   const canManage = canManageHubUsers(role) && isManager;
   const activeTab = activeTabFromPath(pathname);
-  const pageTitle = activeTab === "users" ? "Country Managers" : "My Profile";
+  const pageTitle = activeTab === "users" ? "Country Managers" : activeTab === "data" ? "Clear Hub Data" : "My Profile";
 
   useEffect(() => {
     if (home.isLoading) return;

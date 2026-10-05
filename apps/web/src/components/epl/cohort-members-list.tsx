@@ -19,6 +19,7 @@ import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
 import { ProgramSelect } from "@/components/epl/program-select";
 import { queryClient, trpc } from "@/utils/trpc";
+import { IMPORT_FILE_ACCEPT, readImportFile } from "@/lib/import-file";
 import type { CohortTimelineItem } from "@/components/epl/cohorts-timeline";
 
 const GENDERS = [
@@ -198,21 +199,23 @@ export function CohortMembersList({ tenantId, cohort, accent, canManage = true, 
     URL.revokeObjectURL(url);
   }
 
-  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !cohort.id) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : "";
-      if (!text.trim()) {
-        toast.error("CSV file is empty");
-        return;
-      }
-      importMutation.mutate({ tenantId, cohortId: cohort.id!, csv: text });
-    };
-    reader.readAsText(file);
+    let text: string;
+    try {
+      text = await readImportFile(file);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't read this file");
+      return;
+    }
+    if (!text.trim()) {
+      toast.error("File is empty");
+      return;
+    }
+    importMutation.mutate({ tenantId, cohortId: cohort.id, csv: text });
   }
 
   const members = membersQuery.data?.items ?? [];
@@ -254,9 +257,9 @@ export function CohortMembersList({ tenantId, cohort, accent, canManage = true, 
             disabled={importMutation.isPending}
           >
             {importMutation.isPending ? <IconLoader2 size={14} className="animate-spin" /> : <IconUpload size={14} />}
-            Import CSV
+            Import CSV / Excel
           </button>
-          <input ref={fileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleImportFile} />
+          <input ref={fileInputRef} type="file" accept={IMPORT_FILE_ACCEPT} hidden onChange={handleImportFile} />
         </div>
       )}
 

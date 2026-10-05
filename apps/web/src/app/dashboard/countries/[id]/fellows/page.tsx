@@ -85,9 +85,17 @@ export default function CountryFellowsPage() {
   // Scoped to the current roster (active + incoming), matching what this
   // page's default view and the tiles below actually count — not blended
   // with historical alumni.
-  const femaleCount = demographics?.currentGender.find((g) => g.name === "Female")?.count ?? null;
-  const maleCount = demographics?.currentGender.find((g) => g.name === "Male")?.count ?? null;
-  const pwdCount = demographics?.currentDisability.find((d) => d.name === "Yes")?.count ?? null;
+  // Breakdowns only list values that occur, so a missing entry means zero
+  // once the data has loaded — e.g. an all-male roster is 0% female, not "—".
+  const genderCount = (name: string) =>
+    demographics ? (demographics.currentGender.find((g) => g.name === name)?.count ?? 0) : null;
+  const femaleCount = genderCount("Female");
+  const maleCount = genderCount("Male");
+  // "—" only when nobody's disability status is recorded at all.
+  const disabilityRecorded = demographics?.currentDisability.some((d) => d.name !== "Not specified") ?? false;
+  const pwdCount = disabilityRecorded
+    ? (demographics?.currentDisability.find((d) => d.name === "Yes")?.count ?? 0)
+    : null;
   const scholarCount = demographics?.currentScholars ?? 0;
   const cohortsAgg = cohortsAggQuery.data;
   const metricsLoading = aggregatesQuery.isLoading || cohortsAggQuery.isLoading;

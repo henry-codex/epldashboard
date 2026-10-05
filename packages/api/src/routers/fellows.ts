@@ -13,6 +13,10 @@ import {
   checkIns,
   activityLog,
   tenants,
+  hubCohortMcfStats,
+  hubAlumniLeaders,
+  alumniExecutives,
+  hubEvents,
 } from "@epl-fellows-platform/db";
 import {
   COUNTRY_IMPORT_PROFILES,
@@ -25,6 +29,7 @@ import { assertTenantAccess, resolveTenantId } from "../lib/tenant-access.js";
 import { assertNetworkManager, isNetworkManager } from "../lib/network-access.js";
 import { assertTenantProgram } from "../lib/program-access.js";
 import { parseCsv, serializeCsv } from "../lib/csv.js";
+import { aliasTemplateHeaders } from "../lib/template-headers.js";
 import { countBreakdown, formatStatusLabel, normalizeGender, parseDisabilityValue } from "../lib/demographics.js";
 import { assertTenantPartner, syncPartnerFellowCounts, normalizeName, canonicalizeInstitutionNames } from "../lib/partner-stats.js";
 import { parseCohortNumber } from "../lib/cohort-stats.js";
@@ -396,10 +401,35 @@ export const fellowsRouter = router({
       const programs = countBreakdown(
         rows.map((row) => row.program?.trim() || "Not specified"),
       );
-      const mcfFellows = rows.filter((row) => row.isMcf).length;
-      const mcf = countBreakdown(
-        rows.map((row) => (row.isMcf ? "Mastercard Foundation" : "Other fellows")),
+      // Same rule as MCF Stats' roster calculation: marked MCF, or in a
+      // cohort marked Mastercard Foundation funded.
+      const mcfCohortYears = new Set(
+        (
+          await db
+            .select({ cohortYear: hubCohorts.cohortYear })
+            .from(hubCohorts)
+            .where(and(eq(hubCohorts.tenantId, tenantId), eq(hubCohorts.isMcf, true)))
+        ).map((cohort) => cohort.cohortYear),
       );
+      const isMcfFellow = (row: (typeof rows)[number]) =>
+        Boolean(row.isMcf) || (row.cohortYear != null && mcfCohortYears.has(row.cohortYear));
+      const mcfFellows = rows.filter(isMcfFellow).length;
+      const mcf = countBreakdown(
+        rows.map((row) => (isMcfFellow(row) ? "Mastercard Foundation" : "Other fellows")),
+      );
+      const custom = (row: (typeof rows)[number]) => (row.customFields ?? {}) as Record<string, unknown>;
+      const idpFellows = rows.filter((row) => custom(row).is_idp === true).length;
+      const scholarFellows = rows.filter((row) => custom(row).is_mcf_scholar === true).length;
+      const cohortStatusMap = new Map<number, Record<"active" | "alumni" | "incoming" | "inactive", number>>();
+      for (const row of rows) {
+        if (row.cohortYear == null) continue;
+        const entry = cohortStatusMap.get(row.cohortYear) ?? { active: 0, alumni: 0, incoming: 0, inactive: 0 };
+        if (row.status in entry) entry[row.status as keyof typeof entry] += 1;
+        cohortStatusMap.set(row.cohortYear, entry);
+      }
+      const cohortStatus = [...cohortStatusMap.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([year, counts]) => ({ year, ...counts }));
       // The per-person scholar flag from the sheet's own "Mastercard Scholar"
       // column — distinct from isMcf, which is a cohort-wide funding
       // assumption and can mark every fellow in a cohort "Yes" even when
@@ -425,7 +455,10 @@ export const fellowsRouter = router({
         mcf,
         mcfFellows,
         currentScholars,
+        idpFellows,
+        scholarFellows,
         cohorts,
+        cohortStatus,
         total: rows.length,
       };
     }),
@@ -784,6 +817,9 @@ export const fellowsRouter = router({
 
       let cohortsDeleted = 0;
       if (input.includeCohorts) {
+        // MCF stats and alumni leaders point at cohorts; drop/unlink them first.
+        await db.delete(hubCohortMcfStats).where(eq(hubCohortMcfStats.tenantId, tenantId));
+        await db.update(hubAlumniLeaders).set({ cohortId: null }).where(eq(hubAlumniLeaders.tenantId, tenantId));
         const rows = await db.delete(hubCohorts).where(eq(hubCohorts.tenantId, tenantId)).returning();
         cohortsDeleted = rows.length;
       }
@@ -795,6 +831,61 @@ export const fellowsRouter = router({
         activityDeleted: activityRows.length,
         institutionsDeleted,
         cohortsDeleted,
+      };
+    }),
+
+  // Wipes everything a hub has recorded so it can start over, keeping its
+  // setup: the hub itself, programs, custom network fields and user access.
+  // Runs inside the mutation's audited transaction, so it is all-or-nothing.
+  clearHubData: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid(), confirmHubName: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+      if (!tenant) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Country hub not found" });
+      }
+      if (input.confirmHubName.trim().toLowerCase() !== tenant.name.trim().toLowerCase()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Type the hub name exactly ("${tenant.name}") to confirm clearing all of its data`,
+        });
+      }
+
+      // Children before parents: check-ins/activity/placements -> fellows,
+      // MCF stats/alumni leaders -> cohorts.
+      const count = async (rows: Promise<unknown[]>) => (await rows).length;
+      const checkInsDeleted = await count(db.delete(checkIns).where(eq(checkIns.tenantId, tenantId)).returning());
+      const activityDeleted = await count(db.delete(activityLog).where(eq(activityLog.tenantId, tenantId)).returning());
+      const placementsDeleted = await count(db.delete(placements).where(eq(placements.tenantId, tenantId)).returning());
+      const fellowsDeleted = await count(db.delete(fellows).where(eq(fellows.tenantId, tenantId)).returning());
+      const mcfStatsDeleted = await count(
+        db.delete(hubCohortMcfStats).where(eq(hubCohortMcfStats.tenantId, tenantId)).returning(),
+      );
+      const alumniLeadersDeleted = await count(
+        db.delete(hubAlumniLeaders).where(eq(hubAlumniLeaders.tenantId, tenantId)).returning(),
+      );
+      const cohortsDeleted = await count(db.delete(hubCohorts).where(eq(hubCohorts.tenantId, tenantId)).returning());
+      const alumniExecutivesDeleted = await count(
+        db.delete(alumniExecutives).where(eq(alumniExecutives.tenantId, tenantId)).returning(),
+      );
+      const eventsDeleted = await count(db.delete(hubEvents).where(eq(hubEvents.tenantId, tenantId)).returning());
+      const partnersDeleted = await count(db.delete(hubPartners).where(eq(hubPartners.tenantId, tenantId)).returning());
+
+      return {
+        fellowsDeleted,
+        placementsDeleted,
+        checkInsDeleted,
+        activityDeleted,
+        cohortsDeleted,
+        mcfStatsDeleted,
+        alumniLeadersDeleted,
+        alumniExecutivesDeleted,
+        eventsDeleted,
+        partnersDeleted,
       };
     }),
 
@@ -872,7 +963,7 @@ export const fellowsRouter = router({
         .where(eq(networkFieldDefs.tenantId, tenantId))
         .orderBy(asc(networkFieldDefs.sortOrder));
 
-      const { headers, rows } = parseCsv(input.csv);
+      let { headers, rows } = parseCsv(input.csv);
       if (!headers.length) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "CSV is empty or missing a header row" });
       }
@@ -883,7 +974,8 @@ export const fellowsRouter = router({
       //  1. EPL Country Network Template (fullName + status + program + cohortYear)
       //  2. Legacy canonical columns (firstName/lastName/status/program)
       //  3. Known raw country roster exports (Ghana / Liberia / Malawi / Sierra Leone)
-      const isNetworkTemplate =
+      //  4. The template with readable headers ("Full Name", "Cohort Year", …)
+      let isNetworkTemplate =
         headers.includes("fullName") &&
         headers.includes("status") &&
         headers.includes("program") &&
@@ -893,6 +985,14 @@ export const fellowsRouter = router({
       );
       const countryProfile =
         isNetworkTemplate || hasLegacyCanonicalHeaders ? null : detectCountryProfile(headers);
+
+      if (!isNetworkTemplate && !hasLegacyCanonicalHeaders && !countryProfile) {
+        const aliased = aliasTemplateHeaders(headers, rows);
+        if (aliased) {
+          ({ headers, rows } = aliased);
+          isNetworkTemplate = true;
+        }
+      }
 
       if (!isNetworkTemplate && !hasLegacyCanonicalHeaders && !countryProfile) {
         throw new TRPCError({
@@ -1058,7 +1158,9 @@ export const fellowsRouter = router({
             status: statusParsed.data,
             isMcf: parseBool(row.isMcf),
             externalId: row.externalId?.trim() || null,
-            customFields: normalizeCustomFields(defs, customValues),
+            // Built-in demographics (disability, IDP, scholar, qualification…)
+            // aren't hub field definitions, so normalizing alone dropped them.
+            customFields: { ...customValues, ...normalizeCustomFields(defs, customValues) },
             rawInstitution: retentionInstitution,
             roleTitle: row.roleTitle?.trim() || null,
             city: row.city?.trim() || null,
@@ -1151,7 +1253,8 @@ export const fellowsRouter = router({
           };
 
           try {
-            await assertTenantProgram(tenantId, payload.program);
+            // Store the hub's own spelling of the program title.
+            payload.program = (await assertTenantProgram(tenantId, payload.program)).title;
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : "Invalid program";
             errors.push({ row: rowNum, message });

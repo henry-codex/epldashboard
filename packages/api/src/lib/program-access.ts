@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, hubPrograms } from "@epl-fellows-platform/db";
 
 export async function assertTenantProgram(tenantId: string, programTitle: string) {
@@ -9,7 +9,8 @@ export async function assertTenantProgram(tenantId: string, programTitle: string
   }
 
   const program = await db.query.hubPrograms.findFirst({
-    where: and(eq(hubPrograms.tenantId, tenantId), eq(hubPrograms.title, title)),
+    // Case-insensitive so "Public Service Fellowship" matches "Public Service fellowship".
+    where: and(eq(hubPrograms.tenantId, tenantId), sql`lower(${hubPrograms.title}) = lower(${title})`),
   });
 
   if (!program) {
