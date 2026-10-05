@@ -18,6 +18,7 @@ import {
   COUNTRY_IMPORT_PROFILES,
   detectCountryProfile,
   isBlockingRow,
+  splitName,
 } from "@epl-fellows-platform/db/lib/country-import-profiles";
 import { router, protectedProcedure } from "../index";
 import { assertTenantAccess, resolveTenantId } from "../lib/tenant-access.js";
@@ -28,6 +29,7 @@ import { countBreakdown, formatStatusLabel, normalizeGender, parseDisabilityValu
 import { assertTenantPartner, syncPartnerFellowCounts, normalizeName, canonicalizeInstitutionNames } from "../lib/partner-stats.js";
 import { parseCohortNumber } from "../lib/cohort-stats.js";
 import { FELLOW_STATUSES, type FellowStatus } from "../lib/fellow-status.js";
+import { normalizePhoneWithCountryCode, resolveCallingCode } from "../lib/phone.js";
 
 const fellowStatusSchema = z.enum(FELLOW_STATUSES);
 const fieldTypeSchema = z.enum(["text", "number", "date", "select", "boolean"]);
@@ -133,18 +135,27 @@ const placementInputSchema = z.object({
     .nullable(),
 });
 
-const CORE_HEADERS = [
-  "firstName",
-  "lastName",
-  "email",
+/** Canonical Network CSV template (shared with country data pack). */
+const NETWORK_TEMPLATE_HEADERS = [
+  "fullName",
   "status",
-  "cohortYear",
   "program",
-  "phone",
-  "nationality",
+  "cohortYear",
+  "cohortLabel",
   "gender",
-  "hasDisability",
+  "retentionInstitution",
+  "roleTitle",
+  "city",
+  "region",
   "isMcf",
+  "isMcfScholar",
+  "hasDisability",
+  "isIdp",
+  "email",
+  "phone",
+  "linkedinUrl",
+  "qualification",
+  "university",
   "externalId",
 ] as const;
 
@@ -173,6 +184,7 @@ function mapFellow(row: typeof fellows.$inferSelect) {
     program: row.program,
     status: row.status as FellowStatus,
     isMcf: row.isMcf ?? false,
+    linkedinUrl: row.linkedinUrl,
     customFields,
     ...service,
     externalId: row.externalId,
@@ -194,6 +206,25 @@ function mapFieldDef(row: typeof networkFieldDefs.$inferSelect) {
     required: row.required ?? false,
     sortOrder: row.sortOrder ?? 0,
   };
+}
+
+function callingCodeForTenant(tenant: {
+  countryCode: string | null;
+  settings: unknown;
+} | null | undefined) {
+  if (!tenant) return null;
+  const settings = (tenant.settings ?? {}) as { iso2?: string };
+  return resolveCallingCode({
+    countryCode: tenant.countryCode,
+    iso2: settings.iso2,
+  });
+}
+
+function normalizeHubPhone(
+  phone: string | null | undefined,
+  tenant: { countryCode: string | null; settings: unknown } | null | undefined,
+) {
+  return normalizePhoneWithCountryCode(phone, callingCodeForTenant(tenant));
 }
 
 function parseBool(value: string | undefined) {
@@ -250,7 +281,14 @@ function normalizeCustomFields(
 const fellowInputSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  email: z.string().email(),
+  email: z
+    .string()
+    .max(120)
+    .optional()
+    .default("")
+    .refine((v) => !v.trim() || z.string().email().safeParse(v.trim()).success, {
+      message: "Invalid email",
+    }),
   phone: z.string().max(40).optional(),
   nationality: z.string().max(80).optional(),
   gender: z.string().max(40).optional(),
@@ -259,6 +297,7 @@ const fellowInputSchema = z.object({
   isMcfScholar: z.boolean().optional(),
   qualification: z.string().max(200).optional().nullable(),
   university: z.string().max(200).optional().nullable(),
+  linkedinUrl: z.string().max(300).optional().nullable(),
   serviceOrganization: z.string().max(200).optional().nullable(),
   serviceRole: z.string().max(200).optional().nullable(),
   serviceCity: z.string().max(120).optional().nullable(),
@@ -482,6 +521,8 @@ export const fellowsRouter = router({
 
       await assertTenantProgram(tenantId, input.program);
 
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+
       let serviceInput: ServiceLocationInput = input;
       if (input.servicePartnerId) {
         const partner = await assertTenantPartner(tenantId, input.servicePartnerId);
@@ -514,14 +555,15 @@ export const fellowsRouter = router({
             tenantId,
             firstName: input.firstName.trim(),
             lastName: input.lastName.trim(),
-            email: input.email.trim().toLowerCase(),
-            phone: input.phone?.trim() || null,
+            email: input.email?.trim() ? input.email.trim().toLowerCase() : null,
+            phone: normalizeHubPhone(input.phone, tenant),
             nationality: input.nationality?.trim() || null,
             gender: input.gender?.trim() || null,
             cohortYear: input.cohortYear,
             program: input.program.trim(),
-            status: "active",
+            status: input.status,
             isMcf: input.isMcf,
+            linkedinUrl: input.linkedinUrl?.trim() || null,
             externalId: input.externalId?.trim() || null,
             customFields,
             source: "manual",
@@ -582,8 +624,13 @@ export const fellowsRouter = router({
       };
       if (input.firstName !== undefined) patch.firstName = input.firstName.trim();
       if (input.lastName !== undefined) patch.lastName = input.lastName.trim();
-      if (input.email !== undefined) patch.email = input.email.trim().toLowerCase();
-      if (input.phone !== undefined) patch.phone = input.phone?.trim() || null;
+      if (input.email !== undefined) {
+        patch.email = input.email.trim() ? input.email.trim().toLowerCase() : null;
+      }
+      if (input.phone !== undefined) {
+        const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+        patch.phone = normalizeHubPhone(input.phone, tenant);
+      }
       if (input.nationality !== undefined) patch.nationality = input.nationality?.trim() || null;
       if (input.gender !== undefined) patch.gender = input.gender?.trim() || null;
       if (input.cohortYear !== undefined) patch.cohortYear = input.cohortYear;
@@ -593,6 +640,7 @@ export const fellowsRouter = router({
       }
       if (input.status !== undefined) patch.status = input.status;
       if (input.isMcf !== undefined) patch.isMcf = input.isMcf;
+      if (input.linkedinUrl !== undefined) patch.linkedinUrl = input.linkedinUrl?.trim() || null;
       if (input.externalId !== undefined) patch.externalId = input.externalId?.trim() || null;
       if (
         input.customFields !== undefined ||
@@ -831,24 +879,28 @@ export const fellowsRouter = router({
 
       const errors: { row: number; message: string }[] = [];
 
-      // Two accepted shapes:
-      //  1. The platform's own column names (firstName/lastName/status/...)
-      //  2. A country's raw roster export, recognized by its own headers
-      //     (Ghana's "Fellow/Cohort/Placement Organisation", Sierra Leone's
-      //     "Full Name/Cohort/Host", etc.) and translated server-side, so a
-      //     country team can upload the file exactly as they export it.
-      const hasCanonicalHeaders = ["firstName", "lastName", "status", "program"].every((h) =>
+      // Accepted shapes:
+      //  1. EPL Country Network Template (fullName + status + program + cohortYear)
+      //  2. Legacy canonical columns (firstName/lastName/status/program)
+      //  3. Known raw country roster exports (Ghana / Liberia / Malawi / Sierra Leone)
+      const isNetworkTemplate =
+        headers.includes("fullName") &&
+        headers.includes("status") &&
+        headers.includes("program") &&
+        headers.includes("cohortYear");
+      const hasLegacyCanonicalHeaders = ["firstName", "lastName", "status", "program"].every((h) =>
         headers.includes(h),
       );
-      const countryProfile = hasCanonicalHeaders ? null : detectCountryProfile(headers);
+      const countryProfile =
+        isNetworkTemplate || hasLegacyCanonicalHeaders ? null : detectCountryProfile(headers);
 
-      if (!hasCanonicalHeaders && !countryProfile) {
+      if (!isNetworkTemplate && !hasLegacyCanonicalHeaders && !countryProfile) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
-            "Unrecognized CSV format. Upload either a country roster export this platform knows " +
-            `(${COUNTRY_IMPORT_PROFILES.map((p) => p.label).join(", ")}) or a file with the standard ` +
-            "columns: firstName, lastName, status, program.",
+            "Unrecognized CSV format. Download the Network Template, or upload a known country roster " +
+            `(${COUNTRY_IMPORT_PROFILES.map((p) => p.label).join(", ")}), or a legacy file with ` +
+            "firstName, lastName, status, program.",
         });
       }
 
@@ -860,6 +912,7 @@ export const fellowsRouter = router({
         phone: string | null;
         nationality: string | null;
         gender: string | null;
+        linkedinUrl: string | null;
         cohortYear: number | null;
         cohortLabel: string | null;
         /** null = fall back to this hub's program when it has exactly one */
@@ -869,6 +922,9 @@ export const fellowsRouter = router({
         externalId: string | null;
         customFields: Record<string, unknown>;
         rawInstitution: string | null;
+        roleTitle: string | null;
+        city: string | null;
+        region: string | null;
       };
 
       const prepared: PreparedRow[] = [];
@@ -895,6 +951,7 @@ export const fellowsRouter = router({
             phone: person.phone,
             nationality: null,
             gender: person.gender,
+            linkedinUrl: null,
             cohortYear: person.cohortYear,
             cohortLabel: person.cohortLabel,
             program: null,
@@ -903,6 +960,9 @@ export const fellowsRouter = router({
             externalId: person.externalId,
             customFields,
             rawInstitution: person.placementInstitution,
+            roleTitle: null,
+            city: null,
+            region: null,
           });
         }
       } else {
@@ -912,7 +972,10 @@ export const fellowsRouter = router({
 
           const statusParsed = fellowStatusSchema.safeParse(row.status?.trim());
           if (!statusParsed.success) {
-            errors.push({ row: rowNum, message: `Invalid status (use ${FELLOW_STATUSES.join(", ")})` });
+            errors.push({
+              row: rowNum,
+              message: `Invalid status (use ${FELLOW_STATUSES.join(", ")})`,
+            });
             continue;
           }
 
@@ -920,10 +983,34 @@ export const fellowsRouter = router({
           if (row.cohortYear?.trim()) {
             const parsed = Number.parseInt(row.cohortYear, 10);
             if (Number.isNaN(parsed)) {
-              errors.push({ row: rowNum, message: "cohortYear must be a number" });
+              errors.push({ row: rowNum, message: "cohortYear must be a 4-digit number" });
               continue;
             }
             cohortYear = parsed;
+          } else if (isNetworkTemplate) {
+            errors.push({ row: rowNum, message: "cohortYear is required" });
+            continue;
+          }
+
+          const program = row.program?.trim() || null;
+          if (isNetworkTemplate && !program) {
+            errors.push({ row: rowNum, message: "program is required" });
+            continue;
+          }
+
+          let firstName = "";
+          let lastName = "";
+          if (row.fullName?.trim()) {
+            const split = splitName(row.fullName);
+            firstName = split.firstName;
+            lastName = split.lastName;
+          } else {
+            firstName = row.firstName?.trim() ?? "";
+            lastName = row.lastName?.trim() ?? "";
+          }
+          if (!firstName || !lastName) {
+            errors.push({ row: rowNum, message: "fullName (or firstName + lastName) is required" });
+            continue;
           }
 
           const customValues: Record<string, unknown> = {};
@@ -935,6 +1022,15 @@ export const fellowsRouter = router({
           if (row.hasDisability !== undefined && row.hasDisability !== "") {
             customValues.has_disability = parseBool(row.hasDisability);
           }
+          if (row.isIdp !== undefined && row.isIdp !== "") {
+            customValues.is_idp = parseBool(row.isIdp);
+          }
+          if (row.isMcfScholar !== undefined && row.isMcfScholar !== "") {
+            customValues.is_mcf_scholar = parseBool(row.isMcfScholar);
+          }
+          if (row.qualification?.trim()) customValues.qualification = row.qualification.trim();
+          if (row.university?.trim()) customValues.university = row.university.trim();
+          if (row.cohortLabel?.trim()) customValues.source_cohort_label = row.cohortLabel.trim();
 
           const customErrors = validateCustomFields(defs, customValues);
           if (customErrors.length) {
@@ -942,12 +1038,10 @@ export const fellowsRouter = router({
             continue;
           }
 
-          const firstName = row.firstName?.trim() ?? "";
-          const lastName = row.lastName?.trim() ?? "";
-          if (!firstName || !lastName) {
-            errors.push({ row: rowNum, message: "Missing required core fields" });
-            continue;
-          }
+          const retentionInstitution =
+            row.retentionInstitution?.trim() ||
+            row.institution?.trim() ||
+            null;
 
           prepared.push({
             rowNum,
@@ -957,14 +1051,18 @@ export const fellowsRouter = router({
             phone: row.phone?.trim() || null,
             nationality: row.nationality?.trim() || null,
             gender: row.gender?.trim() || null,
+            linkedinUrl: row.linkedinUrl?.trim() || null,
             cohortYear,
             cohortLabel: row.cohortLabel?.trim() || null,
-            program: row.program?.trim() || null,
+            program,
             status: statusParsed.data,
             isMcf: parseBool(row.isMcf),
             externalId: row.externalId?.trim() || null,
             customFields: normalizeCustomFields(defs, customValues),
-            rawInstitution: row.institution?.trim() || null,
+            rawInstitution: retentionInstitution,
+            roleTitle: row.roleTitle?.trim() || null,
+            city: row.city?.trim() || null,
+            region: row.region?.trim() || null,
           });
         }
       }
@@ -992,6 +1090,7 @@ export const fellowsRouter = router({
         ...new Set(prepared.map((p) => p.rawInstitution).filter((v): v is string => !!v)),
       ]);
       const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+      const hubCallingCode = callingCodeForTenant(tenant);
       const activePartnerCounts = new Map<string, { name: string; count: number }>();
 
       // Cohorts are a first-class thing in the source data (Cohort 1 = 2025,
@@ -1031,9 +1130,10 @@ export const fellowsRouter = router({
             firstName: row.firstName,
             lastName: row.lastName,
             email: row.email,
-            phone: row.phone,
+            phone: normalizePhoneWithCountryCode(row.phone, hubCallingCode),
             nationality: row.nationality,
             gender: row.gender,
+            linkedinUrl: row.linkedinUrl,
             cohortYear: row.cohortYear,
             program: row.program ?? defaultProgram ?? "",
             status: row.status,
@@ -1041,9 +1141,10 @@ export const fellowsRouter = router({
             externalId: row.externalId,
             customFields: {
               ...row.customFields,
-              // Matched against hubPartners by name in partner-stats.ts, so
-              // the app's own live partner fellow-count sync stays correct.
               ...(canonicalInstitution ? { service_organization: canonicalInstitution } : {}),
+              ...(row.roleTitle ? { service_role: row.roleTitle } : {}),
+              ...(row.city ? { service_city: row.city } : {}),
+              ...(row.region ? { service_region: row.region } : {}),
             },
             source: "csv" as const,
             lastSyncedAt: new Date(),
@@ -1104,13 +1205,20 @@ export const fellowsRouter = router({
             if (existingPlacement) {
               await db
                 .update(placements)
-                .set({ institution: canonicalInstitution, isCurrent: isRetentionKnown })
+                .set({
+                  institution: canonicalInstitution,
+                  roleTitle: row.roleTitle ?? existingPlacement.roleTitle,
+                  city: row.city ?? existingPlacement.city,
+                  isCurrent: isRetentionKnown,
+                })
                 .where(eq(placements.id, existingPlacement.id));
             } else {
               await db.insert(placements).values({
                 tenantId,
                 fellowId,
                 institution: canonicalInstitution,
+                roleTitle: row.roleTitle,
+                city: row.city,
                 country: tenant?.name ?? "",
                 isCurrent: isRetentionKnown,
               });
@@ -1248,32 +1356,58 @@ export const fellowsRouter = router({
       const tenantId = resolveTenantId(ctx, input.tenantId);
       await assertTenantAccess(ctx, tenantId);
 
-      const [rows, defs] = await Promise.all([
+      const [rows, defs, placementRows] = await Promise.all([
         db.select().from(fellows).where(eq(fellows.tenantId, tenantId)).orderBy(asc(fellows.lastName), asc(fellows.firstName)),
         db
           .select()
           .from(networkFieldDefs)
           .where(eq(networkFieldDefs.tenantId, tenantId))
           .orderBy(asc(networkFieldDefs.sortOrder)),
+        db.select().from(placements).where(eq(placements.tenantId, tenantId)),
       ]);
 
+      const placementByFellow = new Map<string, (typeof placementRows)[number]>();
+      for (const placement of placementRows) {
+        const existing = placementByFellow.get(placement.fellowId);
+        if (!existing || placement.isCurrent) {
+          placementByFellow.set(placement.fellowId, placement);
+        }
+      }
+
       const customKeys = defs.map((d) => d.key);
-      const headers = [...CORE_HEADERS, ...customKeys];
+      const headers = [...NETWORK_TEMPLATE_HEADERS, ...customKeys];
 
       const csvRows = rows.map((row) => {
         const custom = (row.customFields ?? {}) as Record<string, unknown>;
+        const service = parseServiceLocation(custom);
+        const placement = placementByFellow.get(row.id);
+        const retentionInstitution =
+          placement?.institution ||
+          service.serviceOrganization ||
+          "";
         const record: Record<string, string> = {
-          firstName: row.firstName,
-          lastName: row.lastName,
-          email: row.email ?? "",
+          fullName: `${row.firstName} ${row.lastName}`.trim(),
           status: row.status,
-          cohortYear: row.cohortYear != null ? String(row.cohortYear) : "",
           program: row.program,
-          phone: row.phone ?? "",
-          nationality: row.nationality ?? "",
+          cohortYear: row.cohortYear != null ? String(row.cohortYear) : "",
+          cohortLabel:
+            typeof custom.source_cohort_label === "string" ? custom.source_cohort_label : "",
           gender: row.gender ?? "",
-          isMcf: row.isMcf ? "true" : "false",
-          hasDisability: custom.has_disability === true ? "true" : custom.has_disability === false ? "false" : "",
+          retentionInstitution,
+          roleTitle: placement?.roleTitle || service.serviceRole || "",
+          city: placement?.city || service.serviceCity || "",
+          region: service.serviceRegion || "",
+          isMcf: row.isMcf ? "Yes" : "No",
+          isMcfScholar:
+            custom.is_mcf_scholar === true ? "Yes" : custom.is_mcf_scholar === false ? "No" : "",
+          hasDisability:
+            custom.has_disability === true ? "Yes" : custom.has_disability === false ? "No" : "",
+          isIdp: custom.is_idp === true ? "Yes" : custom.is_idp === false ? "No" : "",
+          email: row.email ?? "",
+          phone: row.phone ?? "",
+          linkedinUrl: row.linkedinUrl ?? "",
+          qualification: custom.qualification != null ? String(custom.qualification) : "",
+          university: custom.university != null ? String(custom.university) : "",
           externalId: row.externalId ?? "",
         };
         for (const key of customKeys) {
