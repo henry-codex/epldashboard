@@ -30,6 +30,7 @@ import { assertNetworkManager, isNetworkManager } from "../lib/network-access.js
 import { assertTenantProgram } from "../lib/program-access.js";
 import { parseCsv, serializeCsv } from "../lib/csv.js";
 import { aliasTemplateHeaders } from "../lib/template-headers.js";
+import { findDuplicateGroups, mergeFellowFields, nameCohortKey } from "../lib/duplicates.js";
 import { countBreakdown, formatStatusLabel, normalizeGender, parseDisabilityValue } from "../lib/demographics.js";
 import { assertTenantPartner, syncPartnerFellowCounts, normalizeName, canonicalizeInstitutionNames } from "../lib/partner-stats.js";
 import { parseCohortNumber } from "../lib/cohort-stats.js";
@@ -889,6 +890,88 @@ export const fellowsRouter = router({
       };
     }),
 
+  // Fellows that look like the same person: same name in the same cohort
+  // year, or the same phone number. Suggestions only — see `merge`.
+  duplicates: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+
+      const people = await db
+        .select({
+          id: fellows.id,
+          firstName: fellows.firstName,
+          lastName: fellows.lastName,
+          email: fellows.email,
+          phone: fellows.phone,
+          status: fellows.status,
+          cohortYear: fellows.cohortYear,
+          program: fellows.program,
+          updatedAt: fellows.updatedAt,
+        })
+        .from(fellows)
+        .where(eq(fellows.tenantId, tenantId));
+      const byId = new Map(people.map((person) => [person.id, person]));
+
+      return {
+        groups: findDuplicateGroups(people).map((group) => ({
+          reason: group.reason,
+          key: group.key,
+          fellows: group.ids.map((id) => byId.get(id)!),
+        })),
+      };
+    }),
+
+  // Folds `removeId` into `keepId`: the kept record's values win, blanks are
+  // filled from the other, and placements/check-ins/activity move across.
+  merge: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid(), keepId: z.string().uuid(), removeId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertNetworkManager(ctx);
+      const tenantId = resolveTenantId(ctx, input.tenantId);
+      await assertTenantAccess(ctx, tenantId);
+      if (input.keepId === input.removeId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose two different fellows to merge" });
+      }
+
+      const [keep, remove] = await Promise.all(
+        [input.keepId, input.removeId].map((id) =>
+          db.query.fellows.findFirst({ where: and(eq(fellows.id, id), eq(fellows.tenantId, tenantId)) }),
+        ),
+      );
+      if (!keep || !remove) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Fellow not found in this hub" });
+      }
+
+      // A month can hold only one check-in per fellow; the kept record's wins.
+      const keptPeriods = await db
+        .select({ month: checkIns.periodMonth, year: checkIns.periodYear })
+        .from(checkIns)
+        .where(eq(checkIns.fellowId, keep.id));
+      for (const period of keptPeriods) {
+        await db
+          .delete(checkIns)
+          .where(and(eq(checkIns.fellowId, remove.id), eq(checkIns.periodMonth, period.month), eq(checkIns.periodYear, period.year)));
+      }
+      await db.update(checkIns).set({ fellowId: keep.id }).where(eq(checkIns.fellowId, remove.id));
+      await db.update(placements).set({ fellowId: keep.id }).where(eq(placements.fellowId, remove.id));
+      await db.update(activityLog).set({ fellowId: keep.id }).where(eq(activityLog.fellowId, remove.id));
+
+      // Delete first: the kept record may take over the removed one's email,
+      // which is unique per hub.
+      await db.delete(fellows).where(eq(fellows.id, remove.id));
+      const merged = mergeFellowFields(keep, remove);
+      await db
+        .update(fellows)
+        .set({ ...merged, program: merged.program ?? keep.program, updatedAt: new Date() })
+        .where(eq(fellows.id, keep.id));
+
+      await syncPartnerFellowCounts(tenantId);
+      return { keptId: keep.id, removedId: remove.id };
+    }),
+
   transitionStatus: protectedProcedure
     .input(
       z.object({
@@ -1218,9 +1301,36 @@ export const fellowsRouter = router({
       let created = 0;
       let updated = 0;
 
+      // Same name + cohort year → fellows already in this hub (and those added
+      // by this import), for matching rows that have no email and for flagging
+      // likely duplicates that do.
+      const nameIndex = new Map<string, string[]>();
+      const indexName = (id: string, firstName: string, lastName: string, cohortYear: number | null) => {
+        const key = nameCohortKey(firstName, lastName, cohortYear);
+        const ids = nameIndex.get(key) ?? [];
+        if (!ids.includes(id)) nameIndex.set(key, [...ids, id]);
+      };
+      for (const existingFellow of await db
+        .select({ id: fellows.id, firstName: fellows.firstName, lastName: fellows.lastName, cohortYear: fellows.cohortYear })
+        .from(fellows)
+        .where(eq(fellows.tenantId, tenantId))) {
+        indexName(existingFellow.id, existingFellow.firstName, existingFellow.lastName, existingFellow.cohortYear);
+      }
+      const firstRowByEmail = new Map<string, number>();
+      const possibleDuplicates: { row: number; name: string }[] = [];
+
       for (const row of prepared) {
         const rowNum = row.rowNum;
         const countsBeforeRow = { created, updated };
+
+        if (row.email) {
+          const firstRow = firstRowByEmail.get(row.email);
+          if (firstRow != null) {
+            errors.push({ row: rowNum, message: `Repeats row ${firstRow} (same email ${row.email}) — skipped` });
+            continue;
+          }
+          firstRowByEmail.set(row.email, rowNum);
+        }
 
         try {
           await auditSavepoint(async () => {
@@ -1272,6 +1382,16 @@ export const fellowsRouter = router({
               where: and(eq(fellows.tenantId, tenantId), eq(fellows.email, payload.email)),
             });
           }
+          if (!existing) {
+            const sameName = nameIndex.get(nameCohortKey(payload.firstName, payload.lastName, payload.cohortYear)) ?? [];
+            if (!payload.email && sameName.length === 1) {
+              // No email to match on, and exactly one fellow with this name in
+              // this cohort: it's the same person, so update instead of re-adding.
+              existing = await db.query.fellows.findFirst({ where: eq(fellows.id, sameName[0]!) });
+            } else if (sameName.length > 0) {
+              possibleDuplicates.push({ row: rowNum, name: `${payload.firstName} ${payload.lastName}`.trim() });
+            }
+          }
 
           let fellowId: string;
           if (existing) {
@@ -1279,6 +1399,8 @@ export const fellowsRouter = router({
               .update(fellows)
               .set({
                 ...payload,
+                // A row without an email never wipes the one already on file.
+                email: payload.email ?? existing.email,
                 updatedAt: new Date(),
               })
               .where(eq(fellows.id, existing.id));
@@ -1292,6 +1414,7 @@ export const fellowsRouter = router({
             fellowId = inserted!.id;
             created += 1;
           }
+          indexName(fellowId, payload.firstName, payload.lastName, payload.cohortYear);
 
           if (canonicalInstitution) {
             // "isCurrent" is what the app's UI shows as "retained" — true
@@ -1449,6 +1572,7 @@ export const fellowsRouter = router({
         partnersUpdated,
         cohortsCreated,
         cohortsUpdated,
+        possibleDuplicates,
       };
     }),
 

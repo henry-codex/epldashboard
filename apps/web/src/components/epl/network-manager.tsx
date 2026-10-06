@@ -27,6 +27,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconStack2,
+  IconCopy,
 } from "@tabler/icons-react";
 import { SlidePanel } from "@/components/epl/slide-panel";
 import { SlideSelect } from "@/components/epl/slide-select";
@@ -34,6 +35,7 @@ import { ProgramSelect } from "@/components/epl/program-select";
 import { SlideToggle } from "@/components/epl/slide-toggle";
 import { CountrySectionEmpty } from "@/components/epl/country-section-empty";
 import { useConfirm } from "@/components/epl/confirm-dialog";
+import { DuplicatesPanel } from "@/components/epl/duplicates-panel";
 import { queryClient, trpc } from "@/utils/trpc";
 import { IMPORT_FILE_ACCEPT, readImportFile } from "@/lib/import-file";
 import { useTheme } from "@/hooks/use-theme";
@@ -379,6 +381,9 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
   const [viewPanel, setViewPanel] = useState(false);
   const [viewingFellow, setViewingFellow] = useState<FellowRow | null>(null);
   const [fieldsPanel, setFieldsPanel] = useState(false);
+  const [duplicatesPanel, setDuplicatesPanel] = useState(false);
+  const duplicatesQuery = useQuery(trpc.fellows.duplicates.queryOptions({ tenantId }));
+  const duplicateCount = duplicatesQuery.data?.groups.length ?? 0;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [fellowForm, setFellowForm] = useState<FellowForm>(EMPTY_FELLOW);
   const [placementForm, setPlacementForm] = useState<PlacementForm>(EMPTY_PLACEMENT);
@@ -464,6 +469,7 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: trpc.fellows.list.queryKey({ tenantId }) }),
       queryClient.invalidateQueries({ queryKey: trpc.fellows.aggregates.queryKey({ tenantId }) }),
+      queryClient.invalidateQueries({ queryKey: trpc.fellows.duplicates.queryKey({ tenantId }) }),
       queryClient.invalidateQueries({ queryKey: trpc.partners.list.queryKey({ tenantId, kind: "placement" }) }),
       queryClient.invalidateQueries({ queryKey: trpc.partners.aggregates.queryKey({ tenantId, kind: "placement" }) }),
       queryClient.invalidateQueries({ queryKey: trpc.cohorts.list.queryKey({ tenantId }) }),
@@ -556,6 +562,12 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
           const more = result.errors.length - 1;
           toast.error(`${result.errors.length} row(s) had errors`, {
             description: `Row ${firstError.row}: ${firstError.message}${more > 0 ? ` (and ${more} more)` : ""}`,
+          });
+        }
+        if (result.possibleDuplicates.length > 0) {
+          const names = result.possibleDuplicates.slice(0, 3).map((d) => d.name).join(", ");
+          toast.warning(`${result.possibleDuplicates.length} possible duplicate(s) added`, {
+            description: `${names}${result.possibleDuplicates.length > 3 ? "…" : ""} — same name and cohort as someone already listed. Review under Duplicates.`,
           });
         }
         await invalidate();
@@ -1012,6 +1024,15 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
             </button>
             <button type="button" className="rm-ghost" onClick={() => setFieldsPanel(true)}>
               <IconColumns size={16} /> Fields
+            </button>
+            <button
+              type="button"
+              className="rm-ghost"
+              onClick={() => setDuplicatesPanel(true)}
+              title="Fellows with the same name in a cohort, or the same phone number"
+            >
+              <IconCopy size={16} /> Duplicates
+              {duplicateCount > 0 && <span className="cs-tab-count">{duplicateCount}</span>}
             </button>
             <button
               type="button"
@@ -1850,6 +1871,14 @@ export function NetworkManager({ tenantId, hubName, accent, readOnly = false }: 
           )}
         </form>
       </SlidePanel>
+
+      <DuplicatesPanel
+        open={duplicatesPanel}
+        onClose={() => setDuplicatesPanel(false)}
+        onMerged={invalidate}
+        tenantId={tenantId}
+        hubName={hubName}
+      />
 
       <SlidePanel
         open={fieldsPanel}
