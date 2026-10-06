@@ -1111,6 +1111,12 @@ export const fellowsRouter = router({
       };
 
       const prepared: PreparedRow[] = [];
+      const cohortLabelKey = (label: string) => label.toLowerCase().replace(/\s+/g, " ").trim();
+      const cohortYearByLabel = new Map(
+        (await db.query.hubCohorts.findMany({ where: eq(hubCohorts.tenantId, tenantId) }))
+          .filter((cohort) => cohort.cohortYear != null)
+          .map((cohort) => [cohortLabelKey(cohort.label), cohort.cohortYear!] as const),
+      );
 
       if (countryProfile) {
         for (const person of countryProfile.transform(rows)) {
@@ -1171,8 +1177,20 @@ export const fellowsRouter = router({
             }
             cohortYear = parsed;
           } else if (isNetworkTemplate) {
-            errors.push({ row: rowNum, message: "cohortYear is required" });
-            continue;
+            // Some rosters name the cohort ("Cohort 2") but leave the year
+            // blank: take the year from the hub's cohort of that name.
+            const label = row.cohortLabel?.trim();
+            const year = label ? cohortYearByLabel.get(cohortLabelKey(label)) : undefined;
+            if (year == null) {
+              errors.push({
+                row: rowNum,
+                message: label
+                  ? `No cohort year for "${label}" — add ${label} with its year under Country Stats, or fill the Cohort Year column`
+                  : "cohortYear is required",
+              });
+              continue;
+            }
+            cohortYear = year;
           }
 
           const program = row.program?.trim() || null;
